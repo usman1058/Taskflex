@@ -1,23 +1,28 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  /* ✅ enable standalone output */
+  output: "standalone",
+
   typescript: {
     ignoreBuildErrors: true,
   },
-  // 禁用 Next.js 热重载，由 nodemon 处理重编译
+
+  // Disable Next.js hot reloading (handled by nodemon, if needed)
   reactStrictMode: false,
+
   webpack: (config, { dev }) => {
     if (dev) {
-      // 禁用 webpack 的热模块替换
+      // Disable webpack hot module replacement
       config.watchOptions = {
-        ignored: ['**/*'], // 忽略所有文件变化
+        ignored: ["**/*"], // Ignore all file changes
       };
     }
     return config;
   },
+
   eslint: {
-    // 构建时忽略ESLint错误
+    // Ignore ESLint errors during build
     ignoreDuringBuilds: true,
   },
 };
