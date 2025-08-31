@@ -1,0 +1,358 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String?
+  avatar        String?
+  role          UserRole  @default(USER)
+  status        UserStatus @default(ACTIVE)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Authentication
+  accounts      Account[]
+  sessions      Session[]
+  
+  // Relationships
+  tasks         Task[]
+  assignedTasks Task[]    @relation("TaskAssignee")
+  comments      Comment[]
+  projects      Project[] @relation("ProjectMembers")
+  organizations Organization[] @relation("OrganizationMembers")
+  notifications Notification[]
+  timeEntries   TimeEntry[]
+  watchedTasks  WatchedTask[]
+  teamMemberships TeamMembership[]
+  ownedTeams    Team[]    @relation("TeamOwner")
+  @@map("users")
+}
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("sessions")
+}
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  avatar      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  members User[] @relation("OrganizationMembers")
+  projects Project[]
+  teams Team[]
+  @@map("organizations")
+}
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  avatar      String?
+  status      TeamStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relationships
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  ownerId       String
+  owner         User          @relation("TeamOwner", fields: [ownerId], references: [id])
+  members       TeamMembership[]
+  projects      Project[]
+  tasks         Task[]        // Added this missing relation
+  @@map("teams")
+}
+model TeamMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String
+  role      TeamRole @default(MEMBER)
+  status    MembershipStatus @default(ACTIVE)
+  joinedAt  DateTime @default(now())
+  invitedAt DateTime?
+  invitedBy String?
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, teamId])
+  @@map("team_memberships")
+}
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  key         String   @unique // Project key like "PROJ"
+  avatar      String?
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relationships
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  teamId        String?
+  team          Team?           @relation(fields: [teamId], references: [id])
+  members       User[]          @relation("ProjectMembers")
+  tasks         Task[]
+  workflows     Workflow[]
+  @@map("projects")
+}
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  type        TaskType   @default(TASK)
+  status      TaskStatus @default(OPEN)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  
+  // Relationships
+  projectId   String?
+  project     Project?   @relation(fields: [projectId], references: [id])
+  teamId      String?
+  team        Team?       @relation(fields: [teamId], references: [id]) // This was missing the opposite relation
+  creatorId   String
+  creator     User       @relation(fields: [creatorId], references: [id])
+  assigneeId  String?
+  assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  
+  // Task management
+  parentTaskId String?
+  parentTask   Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id])
+  subtasks     Task[]    @relation("TaskSubtasks")
+  
+  // Additional features
+  taskTags     TaskTag[]
+  comments     Comment[]
+  attachments  Attachment[]
+  timeEntries  TimeEntry[]
+  watchers     WatchedTask[]
+  
+  // Workflow
+  workflowId   String?
+  workflow     Workflow? @relation(fields: [workflowId], references: [id])
+  
+  // SLA
+  slaId        String?
+  sla          SLA?      @relation(fields: [slaId], references: [id])
+  @@map("tasks")
+}
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String?
+  createdAt DateTime @default(now())
+  taskTags TaskTag[]
+  @@map("tags")
+}
+model TaskTag {
+  id     String @id @default(cuid())
+  taskId String
+  tagId  String
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  @@unique([taskId, tagId])
+  @@map("task_tags")
+}
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+  @@map("comments")
+}
+model Attachment {
+  id        String   @id @default(cuid())
+  filename  String
+  fileSize  Int
+  mimeType  String
+  path      String
+  createdAt DateTime @default(now())
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  @@map("attachments")
+}
+model TimeEntry {
+  id          String   @id @default(cuid())
+  description String?
+  duration    Int      // Duration in minutes
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+  @@map("time_entries")
+}
+model WatchedTask {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+  @@unique([taskId, userId])
+  @@map("watched_tasks")
+}
+model Workflow {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+  tasks     Task[]
+  statuses  WorkflowStatus[]
+  @@map("workflows")
+}
+model WorkflowStatus {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  order       Int
+  color       String?
+  createdAt   DateTime @default(now())
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  @@map("workflow_statuses")
+}
+model SLA {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  responseTime Int     // Response time in minutes
+  resolutionTime Int   // Resolution time in minutes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tasks Task[]
+  @@map("slas")
+}
+model Notification {
+  id        String           @id @default(cuid())
+  title     String
+  message   String
+  type      NotificationType
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("notifications")
+}
+
+// Enums
+enum UserRole {
+  USER
+  ADMIN
+  AGENT
+  MANAGER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum TeamStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum MembershipStatus {
+  ACTIVE
+  PENDING
+  INACTIVE
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+}
+
+enum TaskType {
+  TASK
+  BUG
+  STORY
+  EPIC
+  SUBTASK
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  REVIEW
+  DONE
+  CLOSED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_UPDATED
+  TASK_COMPLETED
+  COMMENT_ADDED
+  MENTION
+  TEAM_INVITATION
+  SYSTEM
+}
