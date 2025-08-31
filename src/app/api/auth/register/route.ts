@@ -31,8 +31,7 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         email,
-        // In a real app, you'd store the hashed password
-        // password: await bcrypt.hash(password, 12)
+        password: await bcrypt.hash(password, 12)
       }
     })
 
