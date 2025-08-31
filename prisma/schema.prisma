@@ -107,6 +107,7 @@ model TeamMembership {
   joinedAt  DateTime @default(now())
   invitedAt DateTime?
   invitedBy String?
+  token     String?
   
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
