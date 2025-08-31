@@ -37,7 +37,7 @@ async function main() {
     // Create organizations
     const organization1 = await prisma.organization.create({
       data: {
-        name: 'TechCorp Inc.',
+        name: 'TechCorp.',
         description: 'A leading technology company',
         avatar: '/organizations/techcorp.png'
       }
