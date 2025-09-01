@@ -27,11 +27,11 @@ interface TeamInvitationPopupProps {
   }
 }
 
-export function TeamInvitationPopup({ 
+const TeamInvitationPopup = ({ 
   open, 
   onOpenChange, 
   notification 
-}: TeamInvitationPopupProps) {
+}: TeamInvitationPopupProps) => {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
@@ -172,3 +172,5 @@ export function TeamInvitationPopup({
     </Dialog>
   )
 }
+
+export default TeamInvitationPopup
