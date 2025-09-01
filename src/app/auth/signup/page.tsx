@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Icons } from "@/components/ui/icons"
 import { Checkbox } from "@/components/ui/checkbox"
 
-export default function SignUp() {
+function SignUpForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard"
@@ -286,4 +286,8 @@ export default function SignUp() {
       </div>
     </div>
   )
+}
+
+export default function SignUp() {
+  return <SignUpForm />
 }

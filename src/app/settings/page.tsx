@@ -89,13 +89,20 @@ export default function SettingsPage() {
     fetchSettings()
   }, [])
 
+  // app/settings/page.tsx (updated fetchSettings function)
+
   const fetchSettings = async () => {
     try {
       setLoading(true)
       const response = await fetch("/api/settings")
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch settings: ${response.status}`)
+        if (response.status === 503) {
+          setError("Database connection error. Please try again later.")
+        } else {
+          throw new Error(`Failed to fetch settings: ${response.status}`)
+        }
+        return
       }
       
       const settingsData = await response.json()
@@ -108,6 +115,7 @@ export default function SettingsPage() {
       })
     } catch (error) {
       console.error("Error fetching settings:", error)
+      setError("Failed to load settings. Please try again.")
     } finally {
       setLoading(false)
     }

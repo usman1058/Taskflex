@@ -12,18 +12,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
-    // Get user settings
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        avatar: true,
-        role: true,
-        status: true
-      }
-    })
+    // Get user settings with error handling
+    let user;
+    try {
+      user = await db.user.findUnique({
+        where: { id: session.user.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatar: true,
+          role: true,
+          status: true
+        }
+      })
+    } catch (dbError) {
+      console.error("Database connection error:", dbError)
+      return NextResponse.json(
+        { error: "Database connection error. Please try again later." },
+        { status: 503 }
+      )
+    }
     
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
@@ -80,22 +89,31 @@ export async function PUT(request: NextRequest) {
       displayPreferences 
     } = body
     
-    // Update user profile
-    const updatedUser = await db.user.update({
-      where: { id: session.user.id },
-      data: {
-        ...(name && { name }),
-        ...(email && { email })
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        avatar: true,
-        role: true,
-        status: true
-      }
-    })
+    // Update user profile with error handling
+    let updatedUser;
+    try {
+      updatedUser = await db.user.update({
+        where: { id: session.user.id },
+        data: {
+          ...(name && { name }),
+          ...(email && { email })
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatar: true,
+          role: true,
+          status: true
+        }
+      })
+    } catch (dbError) {
+      console.error("Database connection error:", dbError)
+      return NextResponse.json(
+        { error: "Database connection error. Please try again later." },
+        { status: 503 }
+      )
+    }
     
     // In a real implementation, you would save notification and display preferences
     // to separate tables in your database
