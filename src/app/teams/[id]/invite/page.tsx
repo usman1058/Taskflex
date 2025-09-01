@@ -1,3 +1,4 @@
+// app/teams/[id]/invite/page.tsx
 "use client"
 import { useEffect, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"

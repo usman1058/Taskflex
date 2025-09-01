@@ -1,4 +1,3 @@
-// app/api/teams/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
@@ -15,7 +14,6 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
-    // Unwrap params Promise
     const { id } = await params
     
     const team = await db.team.findUnique({
@@ -34,6 +32,29 @@ export async function GET(
         organization: {
           select: { id: true, name: true }
         },
+        projects: {
+          select: {
+            id: true,
+            name: true,
+            key: true,
+            status: true,
+            _count: {
+              select: {
+                tasks: true
+              }
+            }
+          }
+        },
+        tasks: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            status: true,
+            dueDate: true,
+            assigneeId: true
+          }
+        },
         _count: {
           select: {
             members: true,
@@ -47,7 +68,6 @@ export async function GET(
       return NextResponse.json({ error: "Team not found" }, { status: 404 })
     }
     
-    // Check if user is a member of the team
     const isMember = team.members.some(member => member.userId === session.user.id) || 
                       team.ownerId === session.user.id ||
                       session.user.role === "ADMIN"
@@ -77,7 +97,6 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
-    // Unwrap params Promise
     const { id } = await params
     
     const body = await request.json()
@@ -111,6 +130,29 @@ export async function PUT(
         organization: {
           select: { id: true, name: true }
         },
+        projects: {
+          select: {
+            id: true,
+            name: true,
+            key: true,
+            status: true,
+            _count: {
+              select: {
+                tasks: true
+              }
+            }
+          }
+        },
+        tasks: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            status: true,
+            dueDate: true,
+            assigneeId: true
+          }
+        },
         _count: {
           select: {
             members: true,
@@ -141,7 +183,6 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
-    // Unwrap params Promise
     const { id } = await params
     
     await db.team.delete({

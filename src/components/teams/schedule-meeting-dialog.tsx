@@ -1,6 +1,4 @@
-// components/teams/schedule-meeting-dialog.tsx
 "use client"
-
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -32,9 +30,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { CalendarIcon, Video, Loader2 } from "lucide-react"
+import { CalendarIcon, Video, Loader2, Clock } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
+import { TimePicker, MinutePicker } from "@/components/ui/time-picker"
 
 const formSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -45,6 +44,9 @@ const formSchema = z.object({
   endTime: z.date({
     required_error: "End time is required",
   }),
+}).refine(data => data.endTime > data.startTime, {
+  message: "End time must be after start time",
+  path: ["endTime"],
 })
 
 type FormValues = z.infer<typeof formSchema>
@@ -60,6 +62,8 @@ interface ScheduleMeetingDialogProps {
 export function ScheduleMeetingDialog({ children, team }: ScheduleMeetingDialogProps) {
   const [open, setOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [startTimeOpen, setStartTimeOpen] = useState(false)
+  const [endTimeOpen, setEndTimeOpen] = useState(false)
   
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -70,7 +74,7 @@ export function ScheduleMeetingDialog({ children, team }: ScheduleMeetingDialogP
       endTime: new Date(new Date().setHours(new Date().getHours() + 1, 0, 0, 0)),
     },
   })
-
+  
   async function onSubmit(values: FormValues) {
     setIsLoading(true)
     try {
@@ -86,12 +90,12 @@ export function ScheduleMeetingDialog({ children, team }: ScheduleMeetingDialogP
           endTime: values.endTime.toISOString(),
         }),
       })
-
+      
       if (!response.ok) {
         const error = await response.json()
         throw new Error(error.error || "Failed to schedule meeting")
       }
-
+      
       form.reset()
       setOpen(false)
     } catch (error) {
@@ -103,7 +107,7 @@ export function ScheduleMeetingDialog({ children, team }: ScheduleMeetingDialogP
       setIsLoading(false)
     }
   }
-
+  
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -160,7 +164,7 @@ export function ScheduleMeetingDialog({ children, team }: ScheduleMeetingDialogP
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>Start Time</FormLabel>
-                    <Popover>
+                    <Popover open={startTimeOpen} onOpenChange={setStartTimeOpen}>
                       <PopoverTrigger asChild>
                         <FormControl>
                           <Button
@@ -184,17 +188,25 @@ export function ScheduleMeetingDialog({ children, team }: ScheduleMeetingDialogP
                           mode="single"
                           selected={field.value}
                           onSelect={(date) => {
-                            // Keep the time from the existing value if it exists
-                            const newDate = new Date(date)
-                            if (field.value) {
-                              newDate.setHours(field.value.getHours())
-                              newDate.setMinutes(field.value.getMinutes())
+                            if (date) {
+                              // Keep the time from the existing value if it exists
+                              const newDate = new Date(date)
+                              if (field.value) {
+                                newDate.setHours(field.value.getHours())
+                                newDate.setMinutes(field.value.getMinutes())
+                              }
+                              field.onChange(newDate)
+                              setStartTimeOpen(false)
                             }
-                            field.onChange(newDate)
                           }}
-                          disabled={(date) => date < new Date()}
+                          disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                           initialFocus
                         />
+                        <div className="p-3 border-t border-border flex items-center justify-center gap-2">
+                          <TimePicker date={field.value} setDate={field.onChange} />
+                          <span>:</span>
+                          <MinutePicker date={field.value} setDate={field.onChange} />
+                        </div>
                       </PopoverContent>
                     </Popover>
                     <FormMessage />
@@ -208,7 +220,7 @@ export function ScheduleMeetingDialog({ children, team }: ScheduleMeetingDialogP
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>End Time</FormLabel>
-                    <Popover>
+                    <Popover open={endTimeOpen} onOpenChange={setEndTimeOpen}>
                       <PopoverTrigger asChild>
                         <FormControl>
                           <Button
@@ -232,17 +244,25 @@ export function ScheduleMeetingDialog({ children, team }: ScheduleMeetingDialogP
                           mode="single"
                           selected={field.value}
                           onSelect={(date) => {
-                            // Keep the time from the existing value if it exists
-                            const newDate = new Date(date)
-                            if (field.value) {
-                              newDate.setHours(field.value.getHours())
-                              newDate.setMinutes(field.value.getMinutes())
+                            if (date) {
+                              // Keep the time from the existing value if it exists
+                              const newDate = new Date(date)
+                              if (field.value) {
+                                newDate.setHours(field.value.getHours())
+                                newDate.setMinutes(field.value.getMinutes())
+                              }
+                              field.onChange(newDate)
+                              setEndTimeOpen(false)
                             }
-                            field.onChange(newDate)
                           }}
-                          disabled={(date) => date < new Date()}
+                          disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                           initialFocus
                         />
+                        <div className="p-3 border-t border-border flex items-center justify-center gap-2">
+                          <TimePicker date={field.value} setDate={field.onChange} />
+                          <span>:</span>
+                          <MinutePicker date={field.value} setDate={field.onChange} />
+                        </div>
                       </PopoverContent>
                     </Popover>
                     <FormMessage />

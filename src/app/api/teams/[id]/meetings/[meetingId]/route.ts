@@ -15,10 +15,8 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
-    // Unwrap params Promise
     const { id, meetingId } = await params
     
-    // Check if user is a member of the team
     const team = await db.team.findUnique({
       where: { id },
       include: {

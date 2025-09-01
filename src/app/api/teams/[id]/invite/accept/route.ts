@@ -1,9 +1,10 @@
+// app/api/teams/[id]/invite/accept/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const body = await request.json()
@@ -13,11 +14,12 @@ export async function POST(
       return NextResponse.json({ error: "Token is required" }, { status: 400 })
     }
     
-    // Find the membership by token
+    const { id } = await params
+    
     const membership = await db.teamMembership.findFirst({
       where: {
         token,
-        teamId: params.id,
+        teamId: id,
         status: "PENDING"
       },
       include: {
@@ -30,31 +32,28 @@ export async function POST(
       return NextResponse.json({ error: "Invalid or expired invitation" }, { status: 404 })
     }
     
-    // Update the membership to active
     await db.teamMembership.update({
       where: { id: membership.id },
       data: {
         status: "ACTIVE",
         joinedAt: new Date(),
-        token: null // Clear the token after use
+        token: null
       }
     })
     
-    // Notify team owner and admins about the new member
     const teamMemberships = await db.teamMembership.findMany({
       where: {
-        teamId: params.id,
+        teamId: id,
         role: {
           in: ["OWNER", "ADMIN"]
         },
         userId: {
-          not: membership.userId // Don't notify the user who just accepted
+          not: membership.userId
         }
       },
       select: { userId: true }
     })
     
-    // Create notifications for team owners and admins
     for (const member of teamMemberships) {
       await db.notification.create({
         data: {
@@ -66,7 +65,6 @@ export async function POST(
       })
     }
     
-    // Create a confirmation notification for the user who accepted
     await db.notification.create({
       data: {
         title: "Team Invitation Accepted",

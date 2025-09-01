@@ -1,20 +1,21 @@
 // components/teams/meetings-list.tsx
 "use client"
-
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Calendar, Video, ExternalLink, MoreHorizontal } from "lucide-react"
+import { Calendar, Video, ExternalLink, MoreHorizontal, Share2, MessageCircle, Mail } from "lucide-react"
 import { format } from "date-fns"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
+import { useToast } from "@/hooks/use-toast"
 
 interface TeamMeeting {
   id: string
@@ -41,6 +42,7 @@ export function MeetingsList({ teamId, canCreateMeetings }: MeetingsListProps) {
   const [meetings, setMeetings] = useState<TeamMeeting[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { toast } = useToast()
 
   useEffect(() => {
     fetchMeetings()
@@ -67,6 +69,28 @@ export function MeetingsList({ teamId, canCreateMeetings }: MeetingsListProps) {
 
   const isUpcoming = (startTime: string) => {
     return new Date(startTime) > new Date()
+  }
+
+  const shareViaWhatsApp = (meeting: TeamMeeting) => {
+    const meetingDetails = `Meeting: ${meeting.title}\nDate: ${format(new Date(meeting.startTime), "PPP")}\nTime: ${format(new Date(meeting.startTime), "HH:mm")} - ${format(new Date(meeting.endTime), "HH:mm")}\n\n${meeting.meetLink ? `Join: ${meeting.meetLink}` : ""}`
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(meetingDetails)}`
+    window.open(whatsappUrl, '_blank')
+  }
+
+  const shareViaEmail = (meeting: TeamMeeting) => {
+    const subject = encodeURIComponent(`Meeting: ${meeting.title}`)
+    const body = encodeURIComponent(`Meeting: ${meeting.title}\nDate: ${format(new Date(meeting.startTime), "PPP")}\nTime: ${format(new Date(meeting.startTime), "HH:mm")} - ${format(new Date(meeting.endTime), "HH:mm")}\n\n${meeting.meetLink ? `Join: ${meeting.meetLink}` : ""}`)
+    window.location.href = `mailto:?subject=${subject}&body=${body}`
+  }
+
+  const copyMeetingLink = (meeting: TeamMeeting) => {
+    if (meeting.meetLink) {
+      navigator.clipboard.writeText(meeting.meetLink)
+      toast({
+        title: "Link copied",
+        description: "Meeting link has been copied to clipboard",
+      })
+    }
   }
 
   if (loading) {
@@ -219,6 +243,24 @@ export function MeetingsList({ teamId, canCreateMeetings }: MeetingsListProps) {
                         View Details
                       </Link>
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => shareViaWhatsApp(meeting)}>
+                      <MessageCircle className="h-4 w-4 mr-2" />
+                      Share via WhatsApp
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => shareViaEmail(meeting)}>
+                      <Mail className="h-4 w-4 mr-2" />
+                      Share via Email
+                    </DropdownMenuItem>
+                    {meeting.meetLink && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => copyMeetingLink(meeting)}>
+                          <Share2 className="h-4 w-4 mr-2" />
+                          Copy Meeting Link
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

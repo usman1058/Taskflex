@@ -35,7 +35,6 @@ import InviteMemberDialog from "@/components/teams/invite-member-dialog"
 import Link from "next/link"
 import { format } from "date-fns"
 
-// Add interfaces for tasks and assignments
 interface Task {
     id: string
     title: string
@@ -88,7 +87,7 @@ interface Team {
             tasks: number
         }
     }[]
-    tasks: Task[] // Add tasks to the team interface
+    tasks: Task[]
     _count: {
         members: number
         projects: number
@@ -131,10 +130,12 @@ export default function TeamDetailPage() {
     const [selectedMember, setSelectedMember] = useState<string | null>(null)
     const [assignments, setAssignments] = useState<Assignment[]>([])
     const [isAssigning, setIsAssigning] = useState(false)
+    const [allUsers, setAllUsers] = useState<any[]>([])
 
     useEffect(() => {
         fetchTeam()
         fetchDashboard()
+        fetchUsers()
     }, [teamId])
 
     const fetchTeam = async () => {
@@ -147,8 +148,7 @@ export default function TeamDetailPage() {
             }
             const teamData = await response.json()
             setTeam(teamData)
-
-            if (teamData.ownerId === session?.user?.id) {
+            if (teamData.owner.id === session?.user?.id) {
                 setUserRole("OWNER")
             } else {
                 const membership = teamData.members.find(m => m.userId === session?.user?.id)
@@ -174,9 +174,20 @@ export default function TeamDetailPage() {
         }
     }
 
+    const fetchUsers = async () => {
+        try {
+            const response = await fetch("/api/users")
+            if (response.ok) {
+                const usersData = await response.json()
+                setAllUsers(usersData)
+            }
+        } catch (error) {
+            console.error("Error fetching users:", error)
+        }
+    }
+
     const handleAssignTask = async (memberId: string, taskId: string) => {
         if (!team) return;
-
         try {
             setIsAssigning(true);
             const response = await fetch(`/api/teams/${teamId}/assignments`, {
@@ -190,9 +201,7 @@ export default function TeamDetailPage() {
                     role: 'ASSIGNEE'
                 }),
             });
-
             if (response.ok) {
-                // Refresh team data to show updated assignments
                 fetchTeam();
             }
         } catch (error) {
@@ -204,7 +213,6 @@ export default function TeamDetailPage() {
 
     const handleAssignProject = async (memberId: string, projectId: string, role: string) => {
         if (!team) return;
-
         try {
             setIsAssigning(true);
             const response = await fetch(`/api/teams/${teamId}/assignments`, {
@@ -218,9 +226,7 @@ export default function TeamDetailPage() {
                     role
                 }),
             });
-
             if (response.ok) {
-                // Refresh team data to show updated assignments
                 fetchTeam();
             }
         } catch (error) {
@@ -252,31 +258,12 @@ export default function TeamDetailPage() {
         return format(new Date(dateString), "MMM dd, yyyy")
     }
 
-    const fetchUsers = async () => {
-        try {
-            const response = await fetch("/api/users")
-            if (response.ok) {
-                const usersData = await response.json()
-                setAllUsers(usersData)
-            }
-        } catch (error) {
-            console.error("Error fetching users:", error)
-        }
-    }
-
-
-    // Add this function to check if user can create meetings
     const canCreateMeetings = () => {
         if (!session || !team) return false
-
-        // Team owner can always create meetings
-        if (team.ownerId === session.user.id) return true
-
-        // Admin members can create meetings
+        if (team.owner.id === session.user.id) return true
         const isAdmin = team.members.some(
             member => member.userId === session.user.id && member.role === "ADMIN"
         )
-
         return isAdmin
     }
 
@@ -345,7 +332,6 @@ export default function TeamDetailPage() {
                         </div>
                     )}
                 </div>
-
                 <Tabs defaultValue="overview" className="space-y-4">
                     <TabsList>
                         <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -354,8 +340,8 @@ export default function TeamDetailPage() {
                         <TabsTrigger value="tasks">Tasks</TabsTrigger>
                         {dashboard && <TabsTrigger value="dashboard">Dashboard</TabsTrigger>}
                         {isAdmin && <TabsTrigger value="assignments">Assignments</TabsTrigger>}
+                        <TabsTrigger value="meetings">Meetings</TabsTrigger>
                     </TabsList>
-
                     <TabsContent value="overview" className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                             <Card>
@@ -414,7 +400,6 @@ export default function TeamDetailPage() {
                             </CardContent>
                         </Card>
                     </TabsContent>
-
                     <TabsContent value="members" className="space-y-4">
                         <Card>
                             <CardHeader>
@@ -471,7 +456,6 @@ export default function TeamDetailPage() {
                             </CardContent>
                         </Card>
                     </TabsContent>
-
                     <TabsContent value="projects" className="space-y-4">
                         <Card>
                             <CardHeader>
@@ -492,7 +476,6 @@ export default function TeamDetailPage() {
                             </CardHeader>
                             <CardContent>
                                 <div className="space-y-4">
-
                                     {team.projects && team.projects.length > 0 ? (
                                         <Card>
                                             <CardHeader>
@@ -552,7 +535,7 @@ export default function TeamDetailPage() {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="Meeting" className="space-y-4">
+                    <TabsContent value="meetings" className="space-y-4">
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center justify-between">
@@ -580,10 +563,7 @@ export default function TeamDetailPage() {
                             </CardContent>
                         </Card>
                     </TabsContent>
-
                     <TabsContent value="tasks" className="space-y-4">
-
-
                         <Card>
                             <CardHeader>
                                 <div className="flex justify-between items-center">
@@ -634,7 +614,6 @@ export default function TeamDetailPage() {
                             </CardContent>
                         </Card>
                     </TabsContent>
-
                     {dashboard && (
                         <TabsContent value="dashboard" className="space-y-4">
                             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -683,7 +662,6 @@ export default function TeamDetailPage() {
                             </Card>
                         </TabsContent>
                     )}
-
                     {isAdmin && (
                         <TabsContent value="assignments" className="space-y-4">
                             <Card>
@@ -732,7 +710,7 @@ export default function TeamDetailPage() {
                                                 <Button
                                                     onClick={() => {
                                                         if (selectedMember) {
-                                                            // Handle task assignment
+                                                            handleAssignTask(selectedMember, "taskId");
                                                         }
                                                     }}
                                                     disabled={!selectedMember || isAssigning}
@@ -742,7 +720,6 @@ export default function TeamDetailPage() {
                                                 </Button>
                                             </div>
                                         </div>
-
                                         <div>
                                             <h3 className="text-lg font-medium mb-4">Assign Projects & Roles</h3>
                                             <div className="grid gap-4 md:grid-cols-3">
@@ -768,7 +745,7 @@ export default function TeamDetailPage() {
                                                         disabled={!selectedMember}
                                                     >
                                                         <option value="">Select a project</option>
-                                                        {team.projects.map(project => (
+                                                        {team.projects?.map(project => (
                                                             <option key={project.id} value={project.id}>
                                                                 {project.name}
                                                             </option>
@@ -791,7 +768,7 @@ export default function TeamDetailPage() {
                                                 <Button
                                                     onClick={() => {
                                                         if (selectedMember) {
-                                                            // Handle project assignment
+                                                            handleAssignProject(selectedMember, "projectId", "role");
                                                         }
                                                     }}
                                                     disabled={!selectedMember || isAssigning}
