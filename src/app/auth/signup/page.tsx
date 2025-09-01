@@ -1,23 +1,29 @@
+// app/auth/signup/page.tsx
 "use client"
 
 import { useState } from "react"
 import { signIn } from "next-auth/react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Icons } from "@/components/ui/icons"
+import { Checkbox } from "@/components/ui/checkbox"
 
 export default function SignUp() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard"
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [agreeToTerms, setAgreeToTerms] = useState(false)
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -26,6 +32,12 @@ export default function SignUp() {
 
     if (password !== confirmPassword) {
       setError("Passwords do not match")
+      setIsLoading(false)
+      return
+    }
+
+    if (!agreeToTerms) {
+      setError("You must agree to the terms and conditions")
       setIsLoading(false)
       return
     }
@@ -55,14 +67,14 @@ export default function SignUp() {
         if (result?.error) {
           setError("Account created but sign in failed")
         } else {
-          router.push("/dashboard")
+          router.push(callbackUrl)
         }
       } else {
         const data = await response.json()
         setError(data.error || "Something went wrong")
       }
     } catch (error) {
-      setError("Something went wrong")
+      setError("Something went wrong. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -71,56 +83,78 @@ export default function SignUp() {
   async function signInWithProvider(provider: "github" | "google") {
     setIsLoading(true)
     try {
-      await signIn(provider, { callbackUrl: "/dashboard" })
+      await signIn(provider, { callbackUrl })
     } catch (error) {
-      setError("Something went wrong")
+      setError("Something went wrong. Please try again.")
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="container flex h-screen w-screen flex-col items-center justify-center">
-      <Card className="w-[400px]">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl text-center">Create an account</CardTitle>
-          <CardDescription className="text-center">
-            Enter your information to create your account
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <div className="grid grid-cols-2 gap-6">
-            <Button
-              variant="outline"
-              onClick={() => signInWithProvider("github")}
-              disabled={isLoading}
-            >
-              <Icons.gitHub className="mr-2 h-4 w-4" />
-              GitHub
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => signInWithProvider("google")}
-              disabled={isLoading}
-            >
-              <Icons.google className="mr-2 h-4 w-4" />
-              Google
-            </Button>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
+      <div className="w-full max-w-md space-y-8">
+        <div className="text-center">
+          <div className="mx-auto h-12 w-12 rounded-full bg-indigo-600 flex items-center justify-center">
+            <Icons.user className="h-6 w-6 text-white" />
           </div>
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
+          <h1 className="mt-6 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+            Create an account
+          </h1>
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            Join us today and get started with your projects
+          </p>
+        </div>
+
+        <Card className="shadow-lg">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-2xl text-center">Sign up</CardTitle>
+            <CardDescription className="text-center">
+              Enter your information to create your account
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <Button
+                variant="outline"
+                onClick={() => signInWithProvider("github")}
+                disabled={isLoading}
+                className="flex items-center justify-center"
+              >
+                <Icons.gitHub className="mr-2 h-4 w-4" />
+                GitHub
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => signInWithProvider("google")}
+                disabled={isLoading}
+                className="flex items-center justify-center"
+              >
+                <Icons.google className="mr-2 h-4 w-4" />
+                Google
+              </Button>
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or continue with
-              </span>
+            
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Or continue with
+                </span>
+              </div>
             </div>
-          </div>
-          <form onSubmit={onSubmit}>
-            <div className="grid gap-2">
-              <div className="grid gap-1">
-                <Label htmlFor="name">Name</Label>
+            
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            
+            <form onSubmit={onSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name</Label>
                 <Input
                   id="name"
                   placeholder="John Doe"
@@ -131,9 +165,10 @@ export default function SignUp() {
                   disabled={isLoading}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  required
                 />
               </div>
-              <div className="grid gap-1">
+              <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
@@ -145,53 +180,110 @@ export default function SignUp() {
                   disabled={isLoading}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  required
                 />
               </div>
-              <div className="grid gap-1">
+              <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
-                  placeholder="Password"
+                  placeholder="••••••••"
                   type="password"
                   autoCapitalize="none"
                   autoComplete="new-password"
                   disabled={isLoading}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  required
                 />
+                <p className="text-xs text-muted-foreground">
+                  Must be at least 8 characters long
+                </p>
               </div>
-              <div className="grid gap-1">
+              <div className="space-y-2">
                 <Label htmlFor="confirm-password">Confirm Password</Label>
                 <Input
                   id="confirm-password"
-                  placeholder="Confirm Password"
+                  placeholder="••••••••"
                   type="password"
                   autoCapitalize="none"
                   autoComplete="new-password"
                   disabled={isLoading}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
                 />
               </div>
-              {error && (
-                <div className="text-sm text-red-600 text-center">{error}</div>
-              )}
-              <Button disabled={isLoading} className="w-full">
-                {isLoading && (
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="terms"
+                  checked={agreeToTerms}
+                  onCheckedChange={(checked) => setAgreeToTerms(checked as boolean)}
+                />
+                <label
+                  htmlFor="terms"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  I agree to the{" "}
+                  <Link
+                    href="/terms"
+                    className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
+                  >
+                    Terms of Service
+                  </Link>{" "}
+                  and{" "}
+                  <Link
+                    href="/privacy"
+                    className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
+                  >
+                    Privacy Policy
+                  </Link>
+                </label>
+              </div>
+              
+              <Button
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-indigo-600 hover:bg-indigo-700"
+              >
+                {isLoading ? (
                   <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-                )}
+                ) : null}
                 Create Account
               </Button>
+            </form>
+            
+            <div className="text-center text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <Link
+                href="/auth/signin"
+                className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
+              >
+                Sign in
+              </Link>
             </div>
-          </form>
-          <div className="text-center text-sm text-muted-foreground">
-            Already have an account?{" "}
-            <Link href="/auth/signin" className="underline underline-offset-4 hover:text-primary">
-              Sign in
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+        
+        <p className="text-center text-xs text-gray-500 dark:text-gray-400">
+          By creating an account, you agree to our{" "}
+          <Link
+            href="/terms"
+            className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
+          >
+            Terms of Service
+          </Link>{" "}
+          and{" "}
+          <Link
+            href="/privacy"
+            className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
+          >
+            Privacy Policy
+          </Link>
+          .
+        </p>
+      </div>
     </div>
   )
 }

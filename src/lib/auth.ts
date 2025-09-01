@@ -1,3 +1,4 @@
+// lib/auth.ts
 import { NextAuthOptions } from "next-auth"
 import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import { db } from "./db"
@@ -27,20 +28,16 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) {
           return null
         }
-
         const user = await db.user.findUnique({
           where: { email: credentials.email }
         })
-
         if (!user || !user.password) {
           return null
         }
-
         const isValid = await bcrypt.compare(credentials.password, user.password)
         if (!isValid) {
           return null
         }
-
         return {
           id: user.id,
           email: user.email,
@@ -48,7 +45,6 @@ export const authOptions: NextAuthOptions = {
           role: user.role,
         }
       }
-
     })
   ],
   session: {
@@ -72,5 +68,6 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/auth/signin",
     signUp: "/auth/signup",
-  }
+  },
+  secret: process.env.NEXTAUTH_SECRET,
 }
