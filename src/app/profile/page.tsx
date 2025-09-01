@@ -1,6 +1,9 @@
-"use client"
+// app/profile/page.tsx
 
-import { useState } from "react"
+// Replace the existing profile page with this updated version:
+
+"use client"
+import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,20 +26,66 @@ import {
   Target,
   Settings,
   Bell,
-  Shield
+  Shield,
+  AlertTriangle
 } from "lucide-react"
+
+interface UserProfile {
+  id: string
+  name: string
+  email: string
+  avatar?: string
+  role: string
+  status: string
+  createdAt: string
+  updatedAt: string
+}
 
 export default function ProfilePage() {
   const { data: session } = useSession()
+  const [user, setUser] = useState<UserProfile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [formData, setFormData] = useState({
-    name: session?.user?.name || "",
-    email: session?.user?.email || "",
+    name: "",
+    email: "",
     bio: "Passionate developer and team player with 5+ years of experience in web development.",
     location: "San Francisco, CA",
     website: "https://example.com",
     timezone: "UTC-8"
   })
+
+  useEffect(() => {
+    fetchUserProfile()
+  }, [])
+
+  const fetchUserProfile = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const response = await fetch("/api/users/profile")
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || `Failed to fetch profile: ${response.status}`)
+      }
+      
+      const userData = await response.json()
+      setUser(userData)
+      setFormData(prev => ({
+        ...prev,
+        name: userData.name,
+        email: userData.email
+      }))
+    } catch (error) {
+      console.error("Error fetching profile:", error)
+      setError(error instanceof Error ? error.message : "Failed to load profile. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // Mock data for statistics
   const stats = [
@@ -105,15 +154,78 @@ export default function ProfilePage() {
   }
 
   const handleCancel = () => {
-    setFormData({
-      name: session?.user?.name || "",
-      email: session?.user?.email || "",
-      bio: "Passionate developer and team player with 5+ years of experience in web development.",
-      location: "San Francisco, CA",
-      website: "https://example.com",
-      timezone: "UTC-8"
-    })
+    if (user) {
+      setFormData(prev => ({
+        ...prev,
+        name: user.name,
+        email: user.email
+      }))
+    }
     setIsEditing(false)
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "ACTIVE": return "bg-green-100 text-green-800"
+      case "INACTIVE": return "bg-gray-100 text-gray-800"
+      case "SUSPENDED": return "bg-red-100 text-red-800"
+      default: return "bg-gray-100 text-gray-800"
+    }
+  }
+
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case "ADMIN": return "bg-red-100 text-red-800"
+      case "MANAGER": return "bg-purple-100 text-purple-800"
+      case "AGENT": return "bg-blue-100 text-blue-800"
+      default: return "bg-gray-100 text-gray-800"
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString()
+  }
+
+  if (loading) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      </MainLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center max-w-md">
+            <AlertTriangle className="h-12 w-12 mx-auto text-destructive mb-4" />
+            <h2 className="text-xl font-bold mb-2">Error</h2>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <Button onClick={fetchUserProfile}>Retry</Button>
+          </div>
+        </div>
+      </MainLayout>
+    )
+  }
+
+  if (!user) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center max-w-md">
+            <AlertTriangle className="h-12 w-12 mx-auto text-destructive mb-4" />
+            <h2 className="text-xl font-bold mb-2">User not found</h2>
+            <p className="text-muted-foreground mb-4">Please try logging in again.</p>
+            <Button onClick={() => window.location.href = "/api/auth/signin"}>
+              Sign In
+            </Button>
+          </div>
+        </div>
+      </MainLayout>
+    )
   }
 
   return (
@@ -134,7 +246,6 @@ export default function ProfilePage() {
             </Button>
           )}
         </div>
-
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Main Content */}
           <div className="lg:col-span-2">
@@ -144,7 +255,6 @@ export default function ProfilePage() {
                 <TabsTrigger value="activity">Activity</TabsTrigger>
                 <TabsTrigger value="settings">Settings</TabsTrigger>
               </TabsList>
-
               <TabsContent value="overview" className="space-y-6">
                 {/* Profile Information */}
                 <Card>
@@ -159,20 +269,27 @@ export default function ProfilePage() {
                       {/* Avatar Section */}
                       <div className="flex items-center gap-4">
                         <Avatar className="h-20 w-20">
-                          <AvatarImage src={session?.user?.avatar || ""} />
+                          <AvatarImage src={user.avatar || ""} />
                           <AvatarFallback className="text-lg">
-                            {session?.user?.name?.charAt(0).toUpperCase() || "U"}
+                            {user.name.charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <h3 className="text-lg font-semibold">{session?.user?.name}</h3>
-                          <p className="text-muted-foreground">{session?.user?.email}</p>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-lg font-semibold">{user.name}</h3>
+                            <Badge className={getStatusColor(user.status)}>
+                              {user.status}
+                            </Badge>
+                            <Badge className={getRoleColor(user.role)}>
+                              {user.role}
+                            </Badge>
+                          </div>
+                          <p className="text-muted-foreground">{user.email}</p>
                           <Button variant="outline" size="sm" className="mt-2">
                             Change Avatar
                           </Button>
                         </div>
                       </div>
-
                       {/* Form Fields */}
                       <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -195,7 +312,6 @@ export default function ProfilePage() {
                           />
                         </div>
                       </div>
-
                       <div>
                         <Label htmlFor="bio">Bio</Label>
                         <Textarea
@@ -206,7 +322,6 @@ export default function ProfilePage() {
                           rows={3}
                         />
                       </div>
-
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="location">Location</Label>
@@ -228,7 +343,6 @@ export default function ProfilePage() {
                           />
                         </div>
                       </div>
-
                       <div>
                         <Label htmlFor="timezone">Timezone</Label>
                         <Input
@@ -238,7 +352,6 @@ export default function ProfilePage() {
                           disabled={!isEditing}
                         />
                       </div>
-
                       {isEditing && (
                         <div className="flex gap-2">
                           <Button onClick={handleSave}>
@@ -254,7 +367,6 @@ export default function ProfilePage() {
                     </div>
                   </CardContent>
                 </Card>
-
                 {/* Stats */}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   {stats.map((stat) => (
@@ -274,7 +386,6 @@ export default function ProfilePage() {
                   ))}
                 </div>
               </TabsContent>
-
               <TabsContent value="activity" className="space-y-6">
                 <Card>
                   <CardHeader>
@@ -300,7 +411,6 @@ export default function ProfilePage() {
                   </CardContent>
                 </Card>
               </TabsContent>
-
               <TabsContent value="settings" className="space-y-6">
                 <Card>
                   <CardHeader>
@@ -328,7 +438,6 @@ export default function ProfilePage() {
                           Configure
                         </Button>
                       </div>
-
                       <div className="flex items-center justify-between p-4 border rounded-lg">
                         <div className="flex items-center gap-3">
                           <Bell className="h-5 w-5 text-muted-foreground" />
@@ -343,7 +452,6 @@ export default function ProfilePage() {
                           Configure
                         </Button>
                       </div>
-
                       <div className="flex items-center justify-between p-4 border rounded-lg">
                         <div className="flex items-center gap-3">
                           <Shield className="h-5 w-5 text-muted-foreground" />
@@ -364,7 +472,6 @@ export default function ProfilePage() {
               </TabsContent>
             </Tabs>
           </div>
-
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Quick Info */}
@@ -375,11 +482,11 @@ export default function ProfilePage() {
               <CardContent className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">Joined January 2024</span>
+                  <span className="text-sm">Joined {formatDate(user.createdAt)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">Role: {session?.user?.role || "User"}</span>
+                  <span className="text-sm">Role: {user.role}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-muted-foreground" />
@@ -387,7 +494,6 @@ export default function ProfilePage() {
                 </div>
               </CardContent>
             </Card>
-
             {/* Skills */}
             <Card>
               <CardHeader>
@@ -404,7 +510,6 @@ export default function ProfilePage() {
                 </div>
               </CardContent>
             </Card>
-
             {/* Connected Accounts */}
             <Card>
               <CardHeader>

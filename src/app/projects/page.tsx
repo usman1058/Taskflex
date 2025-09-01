@@ -220,10 +220,10 @@ export default function ProjectsPage() {
                             </Link>
                           </Button>
                           <Button variant="outline" size="sm" asChild className="flex-1">
-                            <Link href={`/tasks?projectId=${project.id}`}>
-                              View Tasks
-                            </Link>
-                          </Button>
+  <Link href={`/projects/${project.id}/tasks`}>
+    View Tasks
+  </Link>
+</Button>
                           <Button variant="outline" size="sm" asChild>
                             <Link href={`/projects/edit?id=${project.id}`}>
                               Edit
