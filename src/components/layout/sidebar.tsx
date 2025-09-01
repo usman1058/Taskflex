@@ -45,6 +45,11 @@ const sidebarNavItems = [
     icon: FolderOpen,
   },
   {
+    title: "Organizations",
+    href: "/organizations",
+    icon: FolderOpen,
+  },
+  {
     title: "Search",
     href: "/search",
     icon: Search,
