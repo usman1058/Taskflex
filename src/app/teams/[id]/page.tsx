@@ -264,14 +264,6 @@ export default function TeamDetailPage() {
         }
     }
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case "ACTIVE": return "bg-green-100 text-green-800"
-            case "ARCHIVED": return "bg-gray-100 text-gray-800"
-            case "COMPLETED": return "bg-blue-100 text-blue-800"
-            default: return "bg-gray-100 text-gray-800"
-        }
-    }
 
     // Add this function to check if user can create meetings
     const canCreateMeetings = () => {
