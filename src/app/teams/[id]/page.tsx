@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import CreateTeamDialog from "@/components/teams/create-team-dialog"
+import { MeetingsList } from "@/components/teams/meetings-list"
+import { ScheduleMeetingDialog } from "@/components/teams/schedule-meeting-dialog"
 import {
     ArrowLeft,
     Users,
@@ -24,7 +26,8 @@ import {
     Plus,
     CheckSquare,
     FolderOpen,
-    UserCheck
+    UserCheck,
+    Video
 } from "lucide-react"
 import EditMemberRoleDialog from "@/components/teams/edit-member-dialog"
 import RemoveMemberDialog from "@/components/teams/delete-member-dialog"
@@ -144,7 +147,7 @@ export default function TeamDetailPage() {
             }
             const teamData = await response.json()
             setTeam(teamData)
-            
+
             if (teamData.ownerId === session?.user?.id) {
                 setUserRole("OWNER")
             } else {
@@ -173,7 +176,7 @@ export default function TeamDetailPage() {
 
     const handleAssignTask = async (memberId: string, taskId: string) => {
         if (!team) return;
-        
+
         try {
             setIsAssigning(true);
             const response = await fetch(`/api/teams/${teamId}/assignments`, {
@@ -187,7 +190,7 @@ export default function TeamDetailPage() {
                     role: 'ASSIGNEE'
                 }),
             });
-            
+
             if (response.ok) {
                 // Refresh team data to show updated assignments
                 fetchTeam();
@@ -201,7 +204,7 @@ export default function TeamDetailPage() {
 
     const handleAssignProject = async (memberId: string, projectId: string, role: string) => {
         if (!team) return;
-        
+
         try {
             setIsAssigning(true);
             const response = await fetch(`/api/teams/${teamId}/assignments`, {
@@ -215,7 +218,7 @@ export default function TeamDetailPage() {
                     role
                 }),
             });
-            
+
             if (response.ok) {
                 // Refresh team data to show updated assignments
                 fetchTeam();
@@ -314,7 +317,7 @@ export default function TeamDetailPage() {
                         </div>
                     )}
                 </div>
-                
+
                 <Tabs defaultValue="overview" className="space-y-4">
                     <TabsList>
                         <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -324,7 +327,7 @@ export default function TeamDetailPage() {
                         {dashboard && <TabsTrigger value="dashboard">Dashboard</TabsTrigger>}
                         {isAdmin && <TabsTrigger value="assignments">Assignments</TabsTrigger>}
                     </TabsList>
-                    
+
                     <TabsContent value="overview" className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                             <Card>
@@ -440,7 +443,7 @@ export default function TeamDetailPage() {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    
+
                     <TabsContent value="projects" className="space-y-4">
                         <Card>
                             <CardHeader>
@@ -492,8 +495,35 @@ export default function TeamDetailPage() {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    
+
                     <TabsContent value="tasks" className="space-y-4">
+                        // Add this section to your team detail page
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <Video className="h-5 w-5" />
+                                        Team Meetings
+                                    </div>
+                                    {canCreateMeetings && (
+                                        <ScheduleMeetingDialog team={team}>
+                                            <Button size="sm">
+                                                Schedule Meeting
+                                            </Button>
+                                        </ScheduleMeetingDialog>
+                                    )}
+                                </CardTitle>
+                                <CardDescription>
+                                    Team meetings and Google Meet sessions
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <MeetingsList
+                                    teamId={team.id}
+                                    canCreateMeetings={canCreateMeetings}
+                                />
+                            </CardContent>
+                        </Card>
                         <Card>
                             <CardHeader>
                                 <div className="flex justify-between items-center">
@@ -544,7 +574,7 @@ export default function TeamDetailPage() {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    
+
                     {dashboard && (
                         <TabsContent value="dashboard" className="space-y-4">
                             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -593,7 +623,7 @@ export default function TeamDetailPage() {
                             </Card>
                         </TabsContent>
                     )}
-                    
+
                     {isAdmin && (
                         <TabsContent value="assignments" className="space-y-4">
                             <Card>
@@ -610,7 +640,7 @@ export default function TeamDetailPage() {
                                             <div className="grid gap-4 md:grid-cols-2">
                                                 <div>
                                                     <label className="block text-sm font-medium mb-2">Select Member</label>
-                                                    <select 
+                                                    <select
                                                         className="w-full p-2 border rounded-md"
                                                         value={selectedMember || ""}
                                                         onChange={(e) => setSelectedMember(e.target.value)}
@@ -625,7 +655,7 @@ export default function TeamDetailPage() {
                                                 </div>
                                                 <div>
                                                     <label className="block text-sm font-medium mb-2">Select Task</label>
-                                                    <select 
+                                                    <select
                                                         className="w-full p-2 border rounded-md"
                                                         disabled={!selectedMember}
                                                     >
@@ -639,7 +669,7 @@ export default function TeamDetailPage() {
                                                 </div>
                                             </div>
                                             <div className="mt-4">
-                                                <Button 
+                                                <Button
                                                     onClick={() => {
                                                         if (selectedMember) {
                                                             // Handle task assignment
@@ -652,13 +682,13 @@ export default function TeamDetailPage() {
                                                 </Button>
                                             </div>
                                         </div>
-                                        
+
                                         <div>
                                             <h3 className="text-lg font-medium mb-4">Assign Projects & Roles</h3>
                                             <div className="grid gap-4 md:grid-cols-3">
                                                 <div>
                                                     <label className="block text-sm font-medium mb-2">Select Member</label>
-                                                    <select 
+                                                    <select
                                                         className="w-full p-2 border rounded-md"
                                                         value={selectedMember || ""}
                                                         onChange={(e) => setSelectedMember(e.target.value)}
@@ -673,7 +703,7 @@ export default function TeamDetailPage() {
                                                 </div>
                                                 <div>
                                                     <label className="block text-sm font-medium mb-2">Select Project</label>
-                                                    <select 
+                                                    <select
                                                         className="w-full p-2 border rounded-md"
                                                         disabled={!selectedMember}
                                                     >
@@ -687,7 +717,7 @@ export default function TeamDetailPage() {
                                                 </div>
                                                 <div>
                                                     <label className="block text-sm font-medium mb-2">Select Role</label>
-                                                    <select 
+                                                    <select
                                                         className="w-full p-2 border rounded-md"
                                                         disabled={!selectedMember}
                                                     >
@@ -698,7 +728,7 @@ export default function TeamDetailPage() {
                                                 </div>
                                             </div>
                                             <div className="mt-4">
-                                                <Button 
+                                                <Button
                                                     onClick={() => {
                                                         if (selectedMember) {
                                                             // Handle project assignment

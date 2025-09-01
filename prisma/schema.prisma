@@ -33,6 +33,7 @@ model User {
   watchedTasks  WatchedTask[]
   teamMemberships TeamMembership[]
   ownedTeams    Team[]    @relation("TeamOwner")
+  createdMeetings TeamMeeting[] @relation("UserCreatedMeetings")
   @@map("users")
 }
 model Account {
@@ -96,6 +97,7 @@ model Team {
   members       TeamMembership[]
   projects      Project[]
   tasks         Task[]        // Added this missing relation
+  meetings      TeamMeeting[]
   @@map("teams")
 }
 model TeamMembership {
@@ -115,6 +117,28 @@ model TeamMembership {
   @@unique([userId, teamId])
   @@map("team_memberships")
 }
+
+// prisma/schema.prisma (add this to your schema)
+
+model TeamMeeting {
+  id        String   @id @default(cuid())
+  title     String
+  description String?
+  startTime DateTime
+  endTime   DateTime
+  meetLink  String?
+  teamId    String
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  team    Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  creator User @relation("UserCreatedMeetings", fields: [createdBy], references: [id], onDelete: Cascade)
+  
+  @@map("team_meetings")
+}
+
 model Project {
   id          String   @id @default(cuid())
   name        String
