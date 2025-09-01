@@ -252,6 +252,42 @@ export default function TeamDetailPage() {
         return format(new Date(dateString), "MMM dd, yyyy")
     }
 
+    const fetchUsers = async () => {
+        try {
+            const response = await fetch("/api/users")
+            if (response.ok) {
+                const usersData = await response.json()
+                setAllUsers(usersData)
+            }
+        } catch (error) {
+            console.error("Error fetching users:", error)
+        }
+    }
+
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            case "ACTIVE": return "bg-green-100 text-green-800"
+            case "ARCHIVED": return "bg-gray-100 text-gray-800"
+            case "COMPLETED": return "bg-blue-100 text-blue-800"
+            default: return "bg-gray-100 text-gray-800"
+        }
+    }
+
+    // Add this function to check if user can create meetings
+    const canCreateMeetings = () => {
+        if (!session || !team) return false
+
+        // Team owner can always create meetings
+        if (team.ownerId === session.user.id) return true
+
+        // Admin members can create meetings
+        const isAdmin = team.members.some(
+            member => member.userId === session.user.id && member.role === "ADMIN"
+        )
+
+        return isAdmin
+    }
+
     if (loading) {
         return (
             <MainLayout>
@@ -464,40 +500,67 @@ export default function TeamDetailPage() {
                             </CardHeader>
                             <CardContent>
                                 <div className="space-y-4">
-                                    {team.projects.length > 0 ? (
-                                        team.projects.map((project) => (
-                                            <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
-                                                <div>
-                                                    <h3 className="font-medium">{project.name}</h3>
-                                                    <p className="text-sm text-muted-foreground">Key: {project.key}</p>
+
+                                    {team.projects && team.projects.length > 0 ? (
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle className="flex items-center gap-2">
+                                                    <FolderOpen className="h-5 w-5" />
+                                                    Projects
+                                                </CardTitle>
+                                                <CardDescription>
+                                                    Projects associated with this team
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-3">
+                                                    {team.projects.map((project) => (
+                                                        <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                                                            <div>
+                                                                <p className="font-medium">{project.name}</p>
+                                                                <p className="text-sm text-muted-foreground">{project.key}</p>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <Badge className={getStatusColor(project.status)}>
+                                                                    {project.status}
+                                                                </Badge>
+                                                                <Button variant="outline" size="sm" asChild>
+                                                                    <Link href={`/projects/${project.id}`}>
+                                                                        View Project
+                                                                    </Link>
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
                                                 </div>
-                                                <div className="flex items-center gap-2">
-                                                    <Badge className={getStatusColor(project.status)}>
-                                                        {project.status}
-                                                    </Badge>
-                                                    <span className="text-sm text-muted-foreground">
-                                                        {project._count.tasks} tasks
-                                                    </span>
-                                                    {isAdmin && (
-                                                        <Button variant="ghost" size="sm">
-                                                            <Edit className="h-4 w-4" />
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))
+                                            </CardContent>
+                                        </Card>
                                     ) : (
-                                        <div className="text-center py-8 text-muted-foreground">
-                                            No projects found
-                                        </div>
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle className="flex items-center gap-2">
+                                                    <FolderOpen className="h-5 w-5" />
+                                                    Projects
+                                                </CardTitle>
+                                                <CardDescription>
+                                                    No projects associated with this team yet
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="text-center py-8">
+                                                    <FolderOpen className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                                                    <p className="text-muted-foreground">
+                                                        This team doesn't have any projects yet.
+                                                    </p>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
                                     )}
                                 </div>
                             </CardContent>
                         </Card>
                     </TabsContent>
-
-                    <TabsContent value="tasks" className="space-y-4">
-                        // Add this section to your team detail page
+                    <TabsContent value="Meeting" className="space-y-4">
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center justify-between">
@@ -505,7 +568,7 @@ export default function TeamDetailPage() {
                                         <Video className="h-5 w-5" />
                                         Team Meetings
                                     </div>
-                                    {canCreateMeetings && (
+                                    {canCreateMeetings() && (
                                         <ScheduleMeetingDialog team={team}>
                                             <Button size="sm">
                                                 Schedule Meeting
@@ -520,10 +583,15 @@ export default function TeamDetailPage() {
                             <CardContent>
                                 <MeetingsList
                                     teamId={team.id}
-                                    canCreateMeetings={canCreateMeetings}
+                                    canCreateMeetings={canCreateMeetings()}
                                 />
                             </CardContent>
                         </Card>
+                    </TabsContent>
+
+                    <TabsContent value="tasks" className="space-y-4">
+
+
                         <Card>
                             <CardHeader>
                                 <div className="flex justify-between items-center">

@@ -6,7 +6,7 @@ import { db } from "@/lib/db"
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string; meetingId: string } }
+  { params }: { params: Promise<{ id: string; meetingId: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -15,9 +15,12 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
+    // Unwrap params Promise
+    const { id, meetingId } = await params
+    
     // Check if user is a member of the team
     const team = await db.team.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         members: {
           where: { userId: session.user.id }
@@ -37,8 +40,8 @@ export async function GET(
     
     const meeting = await db.teamMeeting.findUnique({
       where: { 
-        id: params.meetingId,
-        teamId: params.id
+        id: meetingId,
+        teamId: id
       },
       include: {
         team: {

@@ -1,5 +1,4 @@
-// app/api/teams/[id]/meetings/route.ts (updated POST method)
-
+// app/api/teams/[id]/meetings/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
@@ -9,7 +8,7 @@ import { sendMeetingEmail } from "@/lib/email"
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -17,6 +16,9 @@ export async function POST(
     if (!session || !session.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    
+    // Unwrap params Promise
+    const { id } = await params
     
     const body = await request.json()
     const { title, description, startTime, endTime } = body
@@ -30,7 +32,7 @@ export async function POST(
     
     // Check if user has permission to create meetings for this team
     const team = await db.team.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         members: {
           where: { userId: session.user.id }
@@ -73,7 +75,7 @@ export async function POST(
       },
       conferenceData: {
         createRequest: {
-          requestId: `${params.id}-${Date.now()}`,
+          requestId: `${id}-${Date.now()}`,
           conferenceSolutionKey: {
             type: "hangoutsMeet"
           }
@@ -97,7 +99,7 @@ export async function POST(
         startTime: new Date(startTime),
         endTime: new Date(endTime),
         meetLink,
-        teamId: params.id,
+        teamId: id,
         createdBy: session.user.id
       },
       include: {
@@ -134,6 +136,60 @@ export async function POST(
     return NextResponse.json(meeting, { status: 201 })
   } catch (error) {
     console.error("Error scheduling meeting:", error)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+    
+    if (!session || !session.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    
+    // Unwrap params Promise
+    const { id } = await params
+    
+    // Check if user is a member of the team
+    const team = await db.team.findUnique({
+      where: { id },
+      include: {
+        members: {
+          where: { userId: session.user.id }
+        }
+      }
+    })
+    
+    if (!team) {
+      return NextResponse.json({ error: "Team not found" }, { status: 404 })
+    }
+    
+    const isMember = team.members.length > 0 || session.user.role === "ADMIN"
+    
+    if (!isMember) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+    
+    const meetings = await db.teamMeeting.findMany({
+      where: { teamId: id },
+      include: {
+        creator: {
+          select: { id: true, name: true, email: true }
+        }
+      },
+      orderBy: { startTime: "desc" }
+    })
+    
+    return NextResponse.json(meetings)
+  } catch (error) {
+    console.error("Error fetching meetings:", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
