@@ -1,8 +1,9 @@
-// app/api/notifications/route.ts
+// app/api/notifications/route.ts (updated GET method)
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { getTeamInvitationDetails } from "@/lib/team-invitations"
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,26 +32,13 @@ export async function GET(request: NextRequest) {
         
         // If it's a team invitation, fetch additional details
         if (notification.type === "TEAM_INVITATION") {
-          const teamMembership = await db.teamMembership.findFirst({
-            where: {
-              userId: session.user.id,
-              status: "PENDING"
-            },
-            include: {
-              team: {
-                select: { name: true }
-              },
-              invitedByUser: {
-                select: { name: true, email: true }
-              }
-            }
-          })
+          const invitationDetails = await getTeamInvitationDetails(notification.id, session.user.id)
           
-          if (teamMembership) {
-            enhancedNotification.teamId = teamMembership.teamId
-            enhancedNotification.teamName = teamMembership.team.name
-            enhancedNotification.inviterName = teamMembership.invitedByUser?.name || teamMembership.invitedByUser?.email
-            enhancedNotification.token = teamMembership.token
+          if (invitationDetails) {
+            enhancedNotification.teamId = invitationDetails.teamId
+            enhancedNotification.teamName = invitationDetails.teamName
+            enhancedNotification.token = invitationDetails.token
+            enhancedNotification.inviterName = invitationDetails.inviterName
           }
         }
         

@@ -89,7 +89,7 @@ export async function POST(
         role: role || "MEMBER",
         status: "PENDING",
         invitedAt: new Date(),
-        invitedBy: session.user.id,
+        invitedBy: session.user.id, // Store the inviter's ID
         token // Store the token
       },
       include: {
