@@ -1,11 +1,10 @@
-// components/teams/meetings-list.tsx
 "use client"
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Calendar, Video, ExternalLink, MoreHorizontal, Share2, MessageCircle, Mail } from "lucide-react"
+import { Calendar, Video, ExternalLink, MoreHorizontal, Share2, MessageCircle, Mail, X } from "lucide-react"
 import { format } from "date-fns"
 import {
   DropdownMenu,
@@ -16,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
+import { useSession } from "next-auth/react"
 
 interface TeamMeeting {
   id: string
@@ -43,6 +43,7 @@ export function MeetingsList({ teamId, canCreateMeetings }: MeetingsListProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
+  const { data: session } = useSession()
 
   useEffect(() => {
     fetchMeetings()
@@ -58,6 +59,7 @@ export function MeetingsList({ teamId, canCreateMeetings }: MeetingsListProps) {
       }
       
       const meetingsData = await response.json()
+      console.log("Meetings data received:", meetingsData)
       setMeetings(meetingsData)
     } catch (error) {
       console.error("Error fetching meetings:", error)
@@ -91,6 +93,51 @@ export function MeetingsList({ teamId, canCreateMeetings }: MeetingsListProps) {
         description: "Meeting link has been copied to clipboard",
       })
     }
+  }
+
+  const handleCancelMeeting = async (meeting: TeamMeeting) => {
+    try {
+      const response = await fetch(`/api/teams/${teamId}/meetings/${meeting.id}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to cancel meeting")
+      }
+
+      toast({
+        title: "Meeting cancelled",
+        description: "The meeting has been cancelled successfully.",
+      })
+
+      // Refresh the meetings list
+      fetchMeetings()
+    } catch (error) {
+      console.error("Error cancelling meeting:", error)
+      toast({
+        title: "Error",
+        description: "Failed to cancel meeting",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const canCancelMeeting = (meeting: TeamMeeting) => {
+    console.log("Checking cancel permissions for meeting:", meeting)
+    console.log("Session user:", session?.user)
+    
+    if (!session || !session.user) {
+      console.log("No session or user")
+      return false
+    }
+    
+    const isCreator = meeting.creator.id === session.user.id
+    const isAdmin = session.user.role === "ADMIN"
+    
+    console.log("Is creator:", isCreator)
+    console.log("Is admin:", isAdmin)
+    
+    return isCreator || isAdmin
   }
 
   if (loading) {
@@ -213,6 +260,19 @@ export function MeetingsList({ teamId, canCreateMeetings }: MeetingsListProps) {
                       {meeting.creator.name}
                     </span>
                   </div>
+                  {meeting.meetLink && (
+                    <div className="mt-2 p-2 bg-blue-50 rounded-md">
+                      <p className="text-xs font-medium text-blue-800">Google Meet Link:</p>
+                      <a 
+                        href={meeting.meetLink} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:underline break-all"
+                      >
+                        {meeting.meetLink}
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -258,6 +318,15 @@ export function MeetingsList({ teamId, canCreateMeetings }: MeetingsListProps) {
                         <DropdownMenuItem onClick={() => copyMeetingLink(meeting)}>
                           <Share2 className="h-4 w-4 mr-2" />
                           Copy Meeting Link
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    {canCancelMeeting(meeting) && isUpcoming(meeting.startTime) && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => handleCancelMeeting(meeting)} className="text-red-600">
+                          <X className="h-4 w-4 mr-2" />
+                          Cancel Meeting
                         </DropdownMenuItem>
                       </>
                     )}

@@ -1,4 +1,3 @@
-// app/teams/[id]/meetings/[meetingId]/page.tsx
 "use client"
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
@@ -8,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Video, Calendar, Clock, User, ExternalLink, ArrowLeft } from "lucide-react"
+import { Video, Calendar, Clock, User, ExternalLink, ArrowLeft, X } from "lucide-react"
 import { format } from "date-fns"
 import Link from "next/link"
+import { useToast } from "@/hooks/use-toast"
 
 interface TeamMeeting {
   id: string
@@ -41,6 +41,8 @@ export default function MeetingDetailPage() {
   const [meeting, setMeeting] = useState<TeamMeeting | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const { toast } = useToast()
 
   useEffect(() => {
     if (teamId && meetingId) {
@@ -66,6 +68,7 @@ export default function MeetingDetailPage() {
       }
       
       const meetingData = await response.json()
+      console.log("Meeting detail data received:", meetingData)
       setMeeting(meetingData)
     } catch (error) {
       console.error("Error fetching meeting:", error)
@@ -75,8 +78,68 @@ export default function MeetingDetailPage() {
     }
   }
 
+  const handleCancelMeeting = async () => {
+    if (!meeting) return
+    
+    setIsCancelling(true)
+    try {
+      const response = await fetch(`/api/teams/${teamId}/meetings/${meeting.id}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to cancel meeting")
+      }
+
+      toast({
+        title: "Meeting cancelled",
+        description: "The meeting has been cancelled successfully.",
+      })
+
+      router.push(`/teams/${teamId}`)
+    } catch (error) {
+      console.error("Error cancelling meeting:", error)
+      toast({
+        title: "Error",
+        description: "Failed to cancel meeting",
+        variant: "destructive",
+      })
+    } finally {
+      setIsCancelling(false)
+    }
+  }
+
+  const canCancelMeeting = () => {
+    console.log("Checking cancel permissions for meeting detail page")
+    console.log("Session user:", session?.user)
+    console.log("Meeting creator:", meeting?.creator)
+    
+    if (!session || !session.user || !meeting) {
+      console.log("Missing session, user, or meeting data")
+      return false
+    }
+    
+    const isCreator = meeting.creator.id === session.user.id
+    const isAdmin = session.user.role === "ADMIN"
+    
+    console.log("Is creator:", isCreator)
+    console.log("Is admin:", isAdmin)
+    
+    return isCreator || isAdmin
+  }
+
   const isUpcoming = (startTime: string) => {
     return new Date(startTime) > new Date()
+  }
+
+  const copyMeetingLink = () => {
+    if (meeting && meeting.meetLink) {
+      navigator.clipboard.writeText(meeting.meetLink)
+      toast({
+        title: "Link copied",
+        description: "Meeting link has been copied to clipboard",
+      })
+    }
   }
 
   if (loading) {
@@ -110,6 +173,10 @@ export default function MeetingDetailPage() {
       </MainLayout>
     )
   }
+
+  console.log("Rendering meeting detail page with meeting:", meeting)
+  console.log("Can cancel meeting:", canCancelMeeting())
+  console.log("Is upcoming:", isUpcoming(meeting.startTime))
 
   return (
     <MainLayout>
@@ -188,6 +255,48 @@ export default function MeetingDetailPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Google Meet Link Card */}
+            {meeting.meetLink && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Video className="h-5 w-5" />
+                    Google Meet Link
+                  </CardTitle>
+                  <CardDescription>
+                    Join the meeting using this link
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="p-3 bg-blue-50 rounded-md">
+                    <a 
+                      href={meeting.meetLink} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline break-all"
+                    >
+                      {meeting.meetLink}
+                    </a>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button className="flex-1" asChild>
+                      <a
+                        href={meeting.meetLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        Join Meeting
+                      </a>
+                    </Button>
+                    <Button variant="outline" onClick={copyMeetingLink}>
+                      Copy Link
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
           
           <div className="space-y-6">
@@ -206,6 +315,26 @@ export default function MeetingDetailPage() {
                       <ExternalLink className="mr-2 h-4 w-4" />
                       Join Google Meet
                     </a>
+                  </Button>
+                )}
+                {canCancelMeeting() && isUpcoming(meeting.startTime) && (
+                  <Button 
+                    variant="destructive" 
+                    className="w-full" 
+                    onClick={handleCancelMeeting}
+                    disabled={isCancelling}
+                  >
+                    {isCancelling ? (
+                      <>
+                        <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        Cancelling...
+                      </>
+                    ) : (
+                      <>
+                        <X className="mr-2 h-4 w-4" />
+                        Cancel Meeting
+                      </>
+                    )}
                   </Button>
                 )}
                 <Button variant="outline" className="w-full" asChild>

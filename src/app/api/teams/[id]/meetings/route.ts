@@ -1,4 +1,3 @@
-// app/api/teams/[id]/meetings/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
@@ -34,7 +33,7 @@ export async function POST(
       include: {
         members: {
           include: {
-            user: true // Include user data to access email
+            user: true
           }
         },
         owner: {
@@ -58,7 +57,7 @@ export async function POST(
     
     let meetLink = null;
     
-    // Try to create Google Meet event, but continue even if it fails
+    // Create Google Meet event
     try {
       const auth = new google.auth.GoogleAuth({
         keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE,
@@ -106,71 +105,66 @@ export async function POST(
       })
       
       meetLink = calendarEvent.data.hangoutLink
+      console.log("Google Meet link created:", meetLink)
     } catch (googleError) {
       console.error("Error creating Google Meet event:", googleError)
       // Continue without Google Meet link
     }
     
-    // Try to create meeting in database
-    try {
-      const meeting = await db.teamMeeting.create({
-        data: {
-          title,
-          description,
-          startTime: new Date(startTime),
-          endTime: new Date(endTime),
-          meetLink,
-          teamId: id,
-          createdBy: session.user.id
+    // Create meeting in database
+    const meeting = await db.teamMeeting.create({
+      data: {
+        title,
+        description,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        meetLink,
+        teamId: id,
+        createdBy: session.user.id
+      },
+      include: {
+        team: {
+          select: { name: true }
         },
-        include: {
-          team: {
-            select: { name: true }
-          },
-          creator: {
-            select: { name: true, email: true }
-          }
-        }
-      })
-      
-      // Create notifications for all team members
-      for (const member of team.members) {
-        try {
-          if (member.user) {
-            await db.notification.create({
-              data: {
-                title: "Team Meeting Scheduled",
-                message: `A meeting "${title}" has been scheduled for ${new Date(startTime).toLocaleString()}`,
-                type: "SYSTEM",
-                userId: member.userId
-              }
-            })
-            
-            // Send email notification
-            if (meetLink && member.user.email) {
-              await sendMeetingEmail({
-                to: member.user.email,
-                teamName: team.name,
-                meetingTitle: title,
-                startTime: new Date(startTime),
-                meetLink
-              })
-            }
-          }
-        } catch (notificationError) {
-          console.error("Error creating notification:", notificationError)
-          // Continue even if notification fails
+        creator: {
+          select: { id: true, name: true, email: true }
         }
       }
-      
-      return NextResponse.json(meeting, { status: 201 })
-    } catch (dbError) {
-      console.error("Error creating meeting in database:", dbError)
-      return NextResponse.json(
-        { error: "Failed to create meeting. The team_meetings table might not exist in the database." },
-        { status: 500 }
-      )
+    })
+    
+    console.log("Meeting created in database:", meeting)
+    
+    // Create notifications for all team members
+    for (const member of team.members) {
+      try {
+        if (member.user) {
+          await db.notification.create({
+            data: {
+              title: "Team Meeting Scheduled",
+              message: `A meeting "${title}" has been scheduled for ${new Date(startTime).toLocaleString()}${meetLink ? `\nGoogle Meet link: ${meetLink}` : ''}`,
+              type: "SYSTEM",
+              userId: member.userId
+            }
+          })
+          
+          // Send email notification
+          if (meetLink && member.user.email) {
+            await sendMeetingEmail({
+              to: member.user.email,
+              teamName: team.name,
+              meetingTitle: title,
+              startTime: new Date(startTime),
+              meetLink
+            })
+          }
+        }
+      } catch (notificationError) {
+        console.error("Error creating notification:", notificationError)
+        // Continue even if notification fails
+      }
     }
+    
+    return NextResponse.json(meeting, { status: 201 })
   } catch (error) {
     console.error("Error scheduling meeting:", error)
     return NextResponse.json(
@@ -225,6 +219,7 @@ export async function GET(
         orderBy: { startTime: "desc" }
       })
       
+      console.log("Fetched meetings:", meetings)
       return NextResponse.json(meetings)
     } catch (dbError) {
       console.error("Error fetching meetings:", dbError)
