@@ -8,19 +8,28 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    
+    console.log("API: Starting task fetch");
+    const session = await getServerSession(authOptions);
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      console.log("API: Unauthorized access attempt");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const resolvedParams = await params
+    
+    // Properly await the params promise
+    const resolvedParams = await params;
+    const taskId = resolvedParams.id;
+    
+    console.log("API: Fetching task with ID:", taskId);
+    
+    if (!taskId) {
+      console.log("API: No task ID provided");
+      return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
+    }
+    
     const task = await db.task.findUnique({
-      where: { id: resolvedParams.id },
+      where: { id: taskId },
       include: {
         creator: {
-          select: { id: true, name: true, email: true, avatar: true }
-        },
-        assignee: {
           select: { id: true, name: true, email: true, avatar: true }
         },
         project: {
@@ -54,32 +63,42 @@ export async function GET(
               select: { id: true, name: true, email: true }
             }
           }
+        },
+        assignees: {
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, avatar: true }
+            }
+          }
         }
       }
-    })
+    });
+    
     if (!task) {
-      return NextResponse.json({ error: "Task not found" }, { status: 404 })
+      console.log("API: Task not found with ID:", taskId);
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
-    return NextResponse.json(task)
+    
+    console.log("API: Successfully fetched task:", task.id);
+    return NextResponse.json(task);
   } catch (error) {
-    console.error("Error fetching task:", error)
+    console.error("API Error fetching task:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Internal server error", details: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
-    )
+    );
   }
 }
-
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
-    
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    
     const resolvedParams = await params
     const body = await request.json()
     const {
@@ -89,8 +108,10 @@ export async function PUT(
       status,
       priority,
       dueDate,
-      assigneeId,
+      assigneeIds = [], // Array of user IDs
       projectId,
+      teamId,
+      parentTaskId,
       tags
     } = body
     
@@ -101,8 +122,10 @@ export async function PUT(
         creator: {
           select: { id: true, name: true, email: true }
         },
-        assignee: {
-          select: { id: true, name: true, email: true }
+        assignees: { // Use assignees instead of assignee
+          include: {
+            user: { select: { id: true } }
+          }
         },
         project: {
           select: { id: true, name: true, members: { select: { id: true } } }
@@ -127,17 +150,15 @@ export async function PUT(
     if (status !== undefined) updateData.status = status
     if (priority !== undefined) updateData.priority = priority
     if (dueDate !== undefined) updateData.dueDate = dueDate ? new Date(dueDate) : null
-    if (assigneeId !== undefined) updateData.assigneeId = assigneeId
-    if (projectId !== undefined) updateData.projectId = projectId
+    if (projectId !== undefined) updateData.projectId = projectId === "" ? null : projectId
+    if (teamId !== undefined) updateData.teamId = teamId === "" ? null : teamId
+    if (parentTaskId !== undefined) updateData.parentTaskId = parentTaskId === "" ? null : parentTaskId
     
     const task = await db.task.update({
       where: { id: resolvedParams.id },
       data: updateData,
       include: {
         creator: {
-          select: { id: true, name: true, email: true, avatar: true }
-        },
-        assignee: {
           select: { id: true, name: true, email: true, avatar: true }
         },
         project: {
@@ -147,9 +168,34 @@ export async function PUT(
           include: {
             tag: true
           }
+        },
+        assignees: { // Use assignees instead of assignee
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, avatar: true }
+            }
+          }
         }
       }
     })
+    
+    // Update assignees if provided
+    if (assigneeIds !== undefined) {
+      // Remove existing assignees
+      await db.taskAssignee.deleteMany({
+        where: { taskId: resolvedParams.id }
+      })
+      
+      // Add new assignees
+      if (assigneeIds.length > 0) {
+        await db.taskAssignee.createMany({
+          data: assigneeIds.map((userId: string) => ({
+            taskId: resolvedParams.id,
+            userId
+          }))
+        })
+      }
+    }
     
     // Update tags if provided
     if (tags !== undefined) {
@@ -161,42 +207,20 @@ export async function PUT(
       // Add new tags
       if (tags.length > 0) {
         await Promise.all(
-          tags.map(async (tagInput: string | { id: string, name: string }) => {
-            let tagId: string;
-            
-            if (typeof tagInput === 'string') {
-              // If it's a string, it could be a tag name or ID
-              // Try to find existing tag by name first
-              const existingTag = await db.tag.findUnique({
-                where: { name: tagInput }
-              });
-              
-              if (existingTag) {
-                tagId = existingTag.id;
-              } else {
-                // Create new tag if it doesn't exist
-                const newTag = await db.tag.create({
-                  data: { name: tagInput, color: "#6366f1" }
-                });
-                tagId = newTag.id;
-              }
-            } else {
-              // If it's an object, use the ID
-              tagId = tagInput.id;
-            }
-            
+          tags.map(async (tagId: string) => {
             await db.taskTag.create({
               data: {
                 taskId: resolvedParams.id,
                 tagId: tagId
               }
-            });
+            })
           })
-        );
+        )
       }
     }
     
     // Create notifications for various changes
+    const notificationPromises: Promise<any>[] = []
     
     // 1. Status change notifications
     if (status !== undefined && status !== existingTask.status) {
@@ -204,108 +228,138 @@ export async function PUT(
       if (status === "DONE" && existingTask.status !== "DONE") {
         // Notify creator if they're not the one who completed it
         if (existingTask.creatorId !== session.user.id) {
-          await db.notification.create({
-            data: {
-              title: "Task Completed",
-              message: `"${task.title}" has been marked as complete`,
-              type: "TASK_COMPLETED",
-              userId: existingTask.creatorId
-            }
-          })
+          notificationPromises.push(
+            db.notification.create({
+              data: {
+                title: "Task Completed",
+                message: `"${task.title}" has been marked as complete`,
+                type: "TASK_COMPLETED",
+                userId: existingTask.creatorId
+              }
+            })
+          )
         }
         
-        // Notify assignee if they're not the one who completed it
-        if (existingTask.assigneeId && existingTask.assigneeId !== session.user.id) {
-          await db.notification.create({
-            data: {
-              title: "Task Completed",
-              message: `"${task.title}" has been marked as complete`,
-              type: "TASK_COMPLETED",
-              userId: existingTask.assigneeId
+        // Notify assignees if they're not the one who completed it
+        if (existingTask.assignees && existingTask.assignees.length > 0) {
+          for (const assignee of existingTask.assignees) {
+            if (assignee.userId !== session.user.id) {
+              notificationPromises.push(
+                db.notification.create({
+                  data: {
+                    title: "Task Completed",
+                    message: `"${task.title}" has been marked as complete`,
+                    type: "TASK_COMPLETED",
+                    userId: assignee.userId
+                  }
+                })
+              )
             }
-          })
+          }
         }
       } else {
         // Regular status change notification
-        // Notify assignee if status changed
-        if (task.assigneeId && task.assigneeId !== session.user.id) {
-          await db.notification.create({
-            data: {
-              title: "Task Status Updated",
-              message: `"${task.title}" status changed to ${status}`,
-              type: "TASK_UPDATED",
-              userId: task.assigneeId
+        // Notify assignees if status changed
+        if (task.assignees && task.assignees.length > 0) {
+          for (const assignee of task.assignees) {
+            if (assignee.user.id !== session.user.id) {
+              notificationPromises.push(
+                db.notification.create({
+                  data: {
+                    title: "Task Status Updated",
+                    message: `"${task.title}" status changed to ${status}`,
+                    type: "TASK_UPDATED",
+                    userId: assignee.user.id
+                  }
+                })
+              )
             }
-          })
+          }
         }
         
-        // Notify creator if they're not the one who changed it and not the assignee
-        if (existingTask.creatorId !== session.user.id && existingTask.creatorId !== task.assigneeId) {
-          await db.notification.create({
-            data: {
-              title: "Task Status Updated",
-              message: `"${task.title}" status changed to ${status}`,
-              type: "TASK_UPDATED",
-              userId: existingTask.creatorId
-            }
-          })
+        if (existingTask.creatorId !== session.user.id && existingTask.creatorId !== task.assignees?.some(a => a.user.id === existingTask.creatorId)) {
+          notificationPromises.push(
+            db.notification.create({
+              data: {
+                title: "Task Status Updated",
+                message: `"${task.title}" status changed to ${status}`,
+                type: "TASK_UPDATED",
+                userId: existingTask.creatorId
+              }
+            })
+          )
         }
       }
     }
     
     // 2. Assignment change notifications
-    if (assigneeId !== undefined && assigneeId !== existingTask.assigneeId) {
-      // Notify the new assignee
-      if (assigneeId && assigneeId !== session.user.id) {
-        await db.notification.create({
-          data: {
-            title: "Task Assigned",
-            message: `You have been assigned to "${task.title}"`,
-            type: "TASK_ASSIGNED",
-            userId: assigneeId
-          }
-        })
+    if (assigneeIds !== undefined) {
+      // Get the new assignees
+      const newAssignees = assigneeIds.map((id: string) => ({ id }))
+      
+      // Notify new assignees
+      for (const assignee of newAssignees) {
+        if (assignee.id !== session.user.id) {
+          notificationPromises.push(
+            db.notification.create({
+              data: {
+                title: "Task Assigned",
+                message: `You have been assigned to "${task.title}"`,
+                type: "TASK_ASSIGNED",
+                userId: assignee.id
+              }
+            })
+          )
+        }
       }
       
-      // Notify the previous assignee if they're being removed
-      if (existingTask.assigneeId && existingTask.assigneeId !== session.user.id) {
-        await db.notification.create({
-          data: {
-            title: "Task Unassigned",
-            message: `You have been unassigned from "${task.title}"`,
-            type: "TASK_UPDATED",
-            userId: existingTask.assigneeId
+      // Notify previous assignees if they're being removed
+      if (existingTask.assignees && existingTask.assignees.length > 0) {
+        for (const assignee of existingTask.assignees) {
+          if (!assigneeIds.includes(assignee.userId) && assignee.userId !== session.user.id) {
+            notificationPromises.push(
+              db.notification.create({
+                data: {
+                  title: "Task Unassigned",
+                  message: `You have been unassigned from "${task.title}"`,
+                  type: "TASK_UPDATED",
+                  userId: assignee.userId
+                }
+              })
+            )
           }
-        })
+        }
       }
     }
     
     // 3. Notify watchers about important changes
-    if (status !== undefined || assigneeId !== undefined) {
+    if (status !== undefined || assigneeIds !== undefined) {
       const watcherIds = existingTask.watchers
         .filter(watcher => watcher.user.id !== session.user.id)
         .map(watcher => watcher.user.id)
       
-      // Remove assignee and creator from watchers if they're already being notified
-      const notifyWatcherIds = watcherIds.filter(id => 
-        id !== task.assigneeId && id !== existingTask.creatorId
+      const notifyWatcherIds = watcherIds.filter(id =>
+        !task.assignees?.some(a => a.user.id === id) && 
+        id !== existingTask.creatorId
       )
       
       for (const watcherId of notifyWatcherIds) {
-        await db.notification.create({
-          data: {
-            title: "Task Updated",
-            message: `"${task.title}" has been updated`,
-            type: "TASK_UPDATED",
-            userId: watcherId
-          }
-        })
+        notificationPromises.push(
+          db.notification.create({
+            data: {
+              title: "Task Updated",
+              message: `"${task.title}" has been updated`,
+              type: "TASK_UPDATED",
+              userId: watcherId
+            }
+          })
+        )
       }
     }
     
     // 4. Project change notification
     if (projectId !== undefined && projectId !== existingTask.projectId) {
-      // If moved to a new project, notify project members
+      // If task is being added to a project
       if (projectId) {
         const project = await db.project.findUnique({
           where: { id: projectId },
@@ -320,21 +374,80 @@ export async function PUT(
           for (const member of project.members) {
             // Don't notify the person who made the change
             if (member.id !== session.user.id) {
-              await db.notification.create({
-                data: {
-                  title: "Task Added to Project",
-                  message: `"${task.title}" has been added to the project "${project.name}"`,
-                  type: "TASK_UPDATED",
-                  userId: member.id
-                }
-              })
+              notificationPromises.push(
+                db.notification.create({
+                  data: {
+                    title: "Task Added to Project",
+                    message: `"${task.title}" has been added to the project "${project.name}"`,
+                    type: "TASK_UPDATED",
+                    userId: member.id
+                  }
+                })
+              )
+            }
+          }
+        }
+      }
+      // If task is being removed from a project
+      else if (existingTask.projectId) {
+        const oldProject = await db.project.findUnique({
+          where: { id: existingTask.projectId },
+          include: {
+            members: {
+              select: { id: true }
+            }
+          }
+        })
+        
+        if (oldProject) {
+          for (const member of oldProject.members) {
+            // Don't notify the person who made the change
+            if (member.id !== session.user.id) {
+              notificationPromises.push(
+                db.notification.create({
+                  data: {
+                    title: "Task Removed from Project",
+                    message: `"${task.title}" has been removed from the project "${oldProject.name}"`,
+                    type: "TASK_UPDATED",
+                    userId: member.id
+                  }
+                })
+              )
             }
           }
         }
       }
     }
     
-    return NextResponse.json(task)
+    // Execute all notification creation promises
+    await Promise.all(notificationPromises)
+    
+    // Fetch the task again with assignees included
+    const taskWithAssignees = await db.task.findUnique({
+      where: { id: resolvedParams.id },
+      include: {
+        creator: {
+          select: { id: true, name: true, email: true, avatar: true }
+        },
+        project: {
+          select: { id: true, name: true, key: true }
+        },
+        taskTags: {
+          include: {
+            tag: true
+          }
+        },
+        assignees: { // Use assignees instead of assignee
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, avatar: true }
+            }
+          }
+        }
+      }
+    })
+    
+    return NextResponse.json(taskWithAssignees)
   } catch (error) {
     console.error("Error updating task:", error)
     return NextResponse.json(
@@ -343,19 +456,18 @@ export async function PUT(
     )
   }
 }
-
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
-    
+
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     const resolvedParams = await params
-    
+
     // Check if task exists and get details for notifications
     const existingTask = await db.task.findUnique({
       where: { id: resolvedParams.id },
@@ -373,33 +485,33 @@ export async function DELETE(
         }
       }
     })
-    
+
     if (!existingTask) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
-    
+
     // Notify relevant people about task deletion
     const notifyIds = new Set<string>()
-    
+
     // Notify creator if they're not the one who deleted it
     if (existingTask.creatorId !== session.user.id) {
       notifyIds.add(existingTask.creatorId)
     }
-    
+
     // Notify assignee if they're not the one who deleted it and not the creator
-    if (existingTask.assigneeId && 
-        existingTask.assigneeId !== session.user.id && 
-        existingTask.assigneeId !== existingTask.creatorId) {
+    if (existingTask.assigneeId &&
+      existingTask.assigneeId !== session.user.id &&
+      existingTask.assigneeId !== existingTask.creatorId) {
       notifyIds.add(existingTask.assigneeId)
     }
-    
+
     // Notify watchers
     existingTask.watchers.forEach(watcher => {
       if (watcher.user.id !== session.user.id) {
         notifyIds.add(watcher.user.id)
       }
     })
-    
+
     // Create notifications
     for (const userId of notifyIds) {
       await db.notification.create({
@@ -411,12 +523,12 @@ export async function DELETE(
         }
       })
     }
-    
+
     // Delete the task (cascade will handle related records)
     await db.task.delete({
       where: { id: resolvedParams.id }
     })
-    
+
     return NextResponse.json({ message: "Task deleted successfully" })
   } catch (error) {
     console.error("Error deleting task:", error)

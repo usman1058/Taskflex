@@ -1,3 +1,4 @@
+// app/tasks/page.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -8,16 +9,20 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { 
-  Search, 
-  Filter, 
-  Plus, 
+import {
+  Search,
+  Filter,
+  Plus,
   MoreHorizontal,
   CheckCircle,
   Clock,
   AlertTriangle,
   Circle,
-  Loader2
+  Loader2,
+  ChevronRight,
+  ChevronDown,
+  FolderOpen,
+  FileText
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -28,6 +33,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
+import { format } from "date-fns"
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog"
 
 interface Task {
   id: string
@@ -44,12 +51,14 @@ interface Task {
     email: string
     avatar: string | null
   }
-  assignee: {
-    id: string
-    name: string
-    email: string
-    avatar: string | null
-  } | null
+  assignees: Array<{
+    user: {
+      id: string
+      name: string | null
+      email: string
+      avatar: string | null
+    }
+  }>
   project: {
     id: string
     name: string
@@ -61,6 +70,15 @@ interface Task {
       name: string
       color: string | null
     }
+  }>
+  parentTask: {
+    id: string
+    title: string
+  } | null
+  subtasks: Array<{
+    id: string
+    title: string
+    status: string
   }>
   _count: {
     comments: number
@@ -76,6 +94,13 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<"list" | "hierarchy">("hierarchy")
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
+
+  // Delete confirmation state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     fetchTasks()
@@ -85,7 +110,7 @@ export default function TasksPage() {
     try {
       setLoading(true)
       setError(null)
-      
+
       // Build query parameters
       const params = new URLSearchParams()
       if (searchTerm) params.append("search", searchTerm)
@@ -93,7 +118,7 @@ export default function TasksPage() {
       if (priorityFilter !== "all") params.append("priority", priorityFilter)
 
       const response = await fetch(`/api/tasks?${params.toString()}`)
-      
+
       if (!response.ok) {
         throw new Error(`Failed to fetch tasks: ${response.status}`)
       }
@@ -110,6 +135,75 @@ export default function TasksPage() {
 
   const handleSearch = () => {
     fetchTasks()
+  }
+
+  const toggleTaskExpansion = (taskId: string) => {
+    setExpandedTasks(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(taskId)) {
+        newSet.delete(taskId)
+      } else {
+        newSet.add(taskId)
+      }
+      return newSet
+    })
+  }
+
+  const handleDeleteClick = (task: Task) => {
+    setTaskToDelete(task)
+    setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!taskToDelete) return
+
+    try {
+      setDeleting(true)
+
+      const response = await fetch(`/api/tasks/${taskToDelete.id}`, {
+        method: "DELETE"
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to delete task")
+      }
+
+      // Remove the task from the list
+      setTasks(tasks.filter(task => task.id !== taskToDelete.id))
+
+      // Close the dialog
+      setDeleteDialogOpen(false)
+      setTaskToDelete(null)
+    } catch (error) {
+      console.error("Error deleting task:", error)
+      alert("Failed to delete task. Please try again.")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const handleStatusChange = async (taskId: string, newStatus: string) => {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ status: newStatus })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update task status")
+      }
+
+      // Update the task in the list
+      setTasks(tasks.map(task =>
+        task.id === taskId ? { ...task, status: newStatus } : task
+      ))
+    } catch (error) {
+      console.error("Error updating task status:", error)
+      alert("Failed to update task status. Please try again.")
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -143,6 +237,182 @@ export default function TasksPage() {
     }
   }
 
+  // Group tasks by parent-child relationships
+  const groupTasksByHierarchy = (tasks: Task[]) => {
+    const parentTasks = tasks.filter(task => !task.parentTask)
+    const childTasks = tasks.filter(task => task.parentTask)
+
+    // Create a map of parent tasks with their children
+    const taskMap = new Map<string, Task & { children: Task[] }>()
+
+    // Initialize map with parent tasks
+    parentTasks.forEach(task => {
+      taskMap.set(task.id, { ...task, children: [] })
+    })
+
+    // Add child tasks to their parents
+    childTasks.forEach(task => {
+      if (task.parentTask && taskMap.has(task.parentTask.id)) {
+        const parent = taskMap.get(task.parentTask.id)!
+        parent.children.push(task)
+      } else {
+        // If parent not found, add as a standalone task
+        taskMap.set(task.id, { ...task, children: [] })
+      }
+    })
+
+    return Array.from(taskMap.values())
+  }
+
+  const renderTaskCard = (task: Task & { children?: Task[] }, level = 0) => {
+    const isExpanded = expandedTasks.has(task.id)
+    const hasChildren = task.children && task.children.length > 0
+
+    return (
+      <div key={task.id} className="space-y-2">
+        <Card
+          className={`hover:shadow-md transition-shadow ${level > 0 ? 'border-l-4 border-l-blue-200' : ''}`}
+        >
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div className="flex-1 space-y-2">
+                {/* Parent task info for subtasks */}
+                {level > 0 && task.parentTask && (
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <FileText className="h-3 w-3" />
+                    <span>Subtask of: {task.parentTask.title}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  {getStatusIcon(task.status)}
+                  <h3 className="font-semibold">{task.title}</h3>
+                  {hasChildren && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => toggleTaskExpansion(task.id)}
+                    >
+                      {isExpanded ?
+                        <ChevronDown className="h-4 w-4" /> :
+                        <ChevronRight className="h-4 w-4" />
+                      }
+                    </Button>
+                  )}
+                </div>
+
+                <p className="text-muted-foreground text-sm line-clamp-2">{task.description}</p>
+
+                <div className="flex flex-wrap gap-2">
+                  <Badge className={getStatusColor(task.status)}>
+                    {task.status.replace("_", " ")}
+                  </Badge>
+                  <Badge className={getPriorityColor(task.priority)}>
+                    {task.priority}
+                  </Badge>
+                  {task.taskTags.map((taskTag, index) => (
+                    <Badge key={index} variant="outline">
+                      {taskTag.tag.name}
+                    </Badge>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                  <span>Project: {task.project?.name || "No project"}</span>
+                  <span>Due: {task.dueDate ? format(new Date(task.dueDate), "MMM d, yyyy") : "No due date"}</span>
+                  {/* Display multiple assignees */}
+                  <span>
+                    Assignees: {task.assignees && task.assignees.length > 0
+                      ? task.assignees.map(a => a.user.name || a.user.email).join(", ")
+                      : "Unassigned"}
+                  </span>
+                  <span>Comments: {task._count.comments}</span>
+                  <span>Attachments: {task._count.attachments}</span>
+                </div>
+
+                {/* Quick status change buttons */}
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    size="sm"
+                    variant={task.status === "OPEN" ? "default" : "outline"}
+                    onClick={() => handleStatusChange(task.id, "OPEN")}
+                  >
+                    Open
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={task.status === "IN_PROGRESS" ? "default" : "outline"}
+                    onClick={() => handleStatusChange(task.id, "IN_PROGRESS")}
+                  >
+                    In Progress
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={task.status === "REVIEW" ? "default" : "outline"}
+                    onClick={() => handleStatusChange(task.id, "REVIEW")}
+                  >
+                    Review
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={task.status === "DONE" ? "default" : "outline"}
+                    onClick={() => handleStatusChange(task.id, "DONE")}
+                  >
+                    Done
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={task.status === "CLOSED" ? "default" : "outline"}
+                    onClick={() => handleStatusChange(task.id, "CLOSED")}
+                  >
+                    Closed
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/tasks/${task.id}`}>View</Link>
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/tasks/${task.id}/edit`}>Edit</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>Duplicate</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-red-600"
+                      onClick={() => handleDeleteClick(task)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Render child tasks if expanded */}
+        {hasChildren && isExpanded && (
+          <div className="ml-8 space-y-2">
+            {task.children?.map(childTask =>
+              renderTaskCard(childTask, level + 1)
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <MainLayout>
@@ -166,6 +436,9 @@ export default function TasksPage() {
     )
   }
 
+  // Group tasks by hierarchy
+  const hierarchicalTasks = viewMode === "hierarchy" ? groupTasksByHierarchy(tasks) : tasks
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -177,12 +450,26 @@ export default function TasksPage() {
               Manage and track all your tasks in one place
             </p>
           </div>
-          <Button asChild>
-            <Link href="/tasks/create">
-              <Plus className="mr-2 h-4 w-4" />
-              New Task
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant={viewMode === "list" ? "default" : "outline"}
+              onClick={() => setViewMode("list")}
+            >
+              List View
+            </Button>
+            <Button
+              variant={viewMode === "hierarchy" ? "default" : "outline"}
+              onClick={() => setViewMode("hierarchy")}
+            >
+              Hierarchy View
+            </Button>
+            <Button asChild>
+              <Link href="/tasks/create">
+                <Plus className="mr-2 h-4 w-4" />
+                New Task
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -205,8 +492,8 @@ export default function TasksPage() {
                   />
                 </div>
               </div>
-              <Select 
-                value={statusFilter} 
+              <Select
+                value={statusFilter}
                 onValueChange={(value) => {
                   setStatusFilter(value)
                   fetchTasks()
@@ -224,8 +511,8 @@ export default function TasksPage() {
                   <SelectItem value="CLOSED">Closed</SelectItem>
                 </SelectContent>
               </Select>
-              <Select 
-                value={priorityFilter} 
+              <Select
+                value={priorityFilter}
                 onValueChange={(value) => {
                   setPriorityFilter(value)
                   fetchTasks()
@@ -252,64 +539,13 @@ export default function TasksPage() {
 
         {/* Task List */}
         <div className="space-y-4">
-          {tasks.map((task) => (
-            <Card key={task.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(task.status)}
-                      <h3 className="font-semibold text-lg">{task.title}</h3>
-                    </div>
-                    <p className="text-muted-foreground">{task.description}</p>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge className={getStatusColor(task.status)}>
-                        {task.status.replace("_", " ")}
-                      </Badge>
-                      <Badge className={getPriorityColor(task.priority)}>
-                        {task.priority}
-                      </Badge>
-                      {task.taskTags.map((taskTag, index) => (
-                        <Badge key={index} variant="outline">
-                          {taskTag.tag.name}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>Project: {task.project?.name || "No project"}</span>
-                      <span>Due: {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "No due date"}</span>
-                      <span>Assignee: {task.assignee?.name || "Unassigned"}</span>
-                      <span>Comments: {task._count.comments}</span>
-                      <span>Attachments: {task._count.attachments}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" asChild>
-                      <Link href={`/tasks/${task.id}`}>View</Link>
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/tasks/${task.id}/edit`}>Edit</Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>Duplicate</DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-red-600">
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {viewMode === "hierarchy" ? (
+            // Render hierarchical view
+            hierarchicalTasks.map(task => renderTaskCard(task))
+          ) : (
+            // Render flat list
+            tasks.map(task => renderTaskCard(task))
+          )}
         </div>
 
         {tasks.length === 0 && !loading && (
@@ -330,6 +566,16 @@ export default function TasksPage() {
           </Card>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmationDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Task"
+        description={`Are you sure you want to delete "${taskToDelete?.title}"? This action cannot be undone and will permanently remove the task and all its associated data.`}
+        loading={deleting}
+      />
     </MainLayout>
   )
 }

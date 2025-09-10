@@ -1,3 +1,4 @@
+// app/tasks/create/page.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -12,10 +13,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Plus, X, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { UserSearch } from "@/components/ui/user-search"
+import { AttachmentUpload } from "@/components/ui/attachment-upload"
 
 interface User {
   id: string
-  name: string
+  name?: string
   email: string
   avatar?: string
 }
@@ -30,6 +33,7 @@ interface Project {
 export default function CreateTaskPage() {
   const { data: session } = useSession()
   const router = useRouter()
+  
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -41,11 +45,15 @@ export default function CreateTaskPage() {
     projectId: "",
     tags: [] as string[],
   })
+  
   const [newTag, setNewTag] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [users, setUsers] = useState<User[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loadingData, setLoadingData] = useState(true)
+  const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [attachments, setAttachments] = useState<File[]>([])
+  const [uploadingAttachments, setUploadingAttachments] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -53,18 +61,17 @@ export default function CreateTaskPage() {
 
   const fetchData = async () => {
     try {
-      const [usersResponse, projectsResponse] = await Promise.all([
-        fetch("/api/users"),
-        fetch("/api/projects")
-      ])
-
-      if (usersResponse.ok) {
-        const usersData = await usersResponse.json()
-        setUsers(usersData)
+      // Fetch assignees (users that can be assigned tasks)
+      const assigneesResponse = await fetch("/api/assignees")
+      if (assigneesResponse.ok) {
+        const assigneesData = await assigneesResponse.json()
+        setUsers(assigneesData)
       } else {
-        console.error("Failed to fetch users")
+        console.error("Failed to fetch assignees")
       }
 
+      // Fetch projects
+      const projectsResponse = await fetch("/api/projects")
       if (projectsResponse.ok) {
         const projectsData = await projectsResponse.json()
         setProjects(projectsData)
@@ -99,6 +106,49 @@ export default function CreateTaskPage() {
     }))
   }
 
+  const handleUserSelect = (user: User) => {
+    setSelectedUser(user)
+    setFormData(prev => ({ ...prev, assigneeId: user.id }))
+  }
+
+  const handleClearUser = () => {
+    setSelectedUser(null)
+    setFormData(prev => ({ ...prev, assigneeId: "" }))
+  }
+
+  const uploadAttachments = async (): Promise<any[]> => {
+    if (attachments.length === 0) return []
+    
+    setUploadingAttachments(true)
+    const uploadedAttachments: any[] = []
+    
+    try {
+      for (const file of attachments) {
+        const formData = new FormData()
+        formData.append('file', file)
+        
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        })
+        
+        if (!response.ok) {
+          throw new Error(`Failed to upload ${file.name}`)
+        }
+        
+        const result = await response.json()
+        uploadedAttachments.push(result)
+      }
+    } catch (error) {
+      console.error('Error uploading attachments:', error)
+      throw error
+    } finally {
+      setUploadingAttachments(false)
+    }
+    
+    return uploadedAttachments
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -110,11 +160,15 @@ export default function CreateTaskPage() {
     setIsLoading(true)
 
     try {
+      // Upload attachments first
+      const uploadedAttachments = await uploadAttachments()
+      
       // Prepare data for API - convert special values to empty strings
       const apiData = {
         ...formData,
         assigneeId: formData.assigneeId === "unassigned" ? "" : formData.assigneeId,
-        projectId: formData.projectId === "noproject" ? "" : formData.projectId
+        projectId: formData.projectId === "noproject" ? "" : formData.projectId,
+        attachments: uploadedAttachments
       }
 
       const response = await fetch("/api/tasks", {
@@ -153,15 +207,15 @@ export default function CreateTaskPage() {
 
   return (
     <MainLayout>
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-6 p-4 md:p-6">
         {/* Header */}
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <Button variant="ghost" size="sm" onClick={() => router.back()}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Create New Task</h1>
+          <div className="flex-1">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Create New Task</h1>
             <p className="text-muted-foreground">
               Create a new task and assign it to team members
             </p>
@@ -169,7 +223,7 @@ export default function CreateTaskPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2">
             {/* Basic Information */}
             <Card>
               <CardHeader>
@@ -201,7 +255,7 @@ export default function CreateTaskPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="type">Type</Label>
                     <Select value={formData.type} onValueChange={(value) => handleInputChange("type", value)}>
@@ -272,19 +326,12 @@ export default function CreateTaskPage() {
 
                 <div>
                   <Label htmlFor="assignee">Assignee</Label>
-                  <Select value={formData.assigneeId} onValueChange={(value) => handleInputChange("assigneeId", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select assignee" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="unassigned">Unassigned</SelectItem>
-                      {users.map((user) => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.name} ({user.email})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <UserSearch 
+                    users={users}
+                    selectedUser={selectedUser}
+                    onUserSelect={handleUserSelect}
+                    onClearUser={handleClearUser}
+                  />
                 </div>
 
                 <div>
@@ -347,12 +394,19 @@ export default function CreateTaskPage() {
             </CardContent>
           </Card>
 
+          {/* Attachments */}
+          <AttachmentUpload 
+            attachments={attachments}
+            onAttachmentsChange={setAttachments}
+            uploading={uploadingAttachments}
+          />
+
           {/* Submit Button */}
           <div className="flex justify-end gap-4">
             <Button type="button" variant="outline" onClick={() => router.back()}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading || !formData.title.trim()}>
+            <Button type="submit" disabled={isLoading || uploadingAttachments || !formData.title.trim()}>
               {isLoading ? "Creating..." : "Create Task"}
             </Button>
           </div>

@@ -17,14 +17,14 @@ model User {
   status        UserStatus @default(ACTIVE)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  
+
   // Authentication
   accounts      Account[]
   sessions      Session[]
-  
+
   // Relationships
-  tasks         Task[]
-  assignedTasks Task[]    @relation("TaskAssignee")
+  tasks         Task[]              // Tasks created by the user
+  assignedTasks TaskAssignee[]      // Pivot relation
   comments      Comment[]
   projects      Project[] @relation("ProjectMembers")
   organizations Organization[] @relation("OrganizationMembers")
@@ -34,8 +34,67 @@ model User {
   teamMemberships TeamMembership[]
   ownedTeams    Team[]    @relation("TeamOwner")
   createdMeetings TeamMeeting[] @relation("UserCreatedMeetings")
+
   @@map("users")
 }
+
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  type        TaskType   @default(TASK)
+  status      TaskStatus @default(OPEN)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relationships
+  projectId   String?
+  project     Project?   @relation(fields: [projectId], references: [id])
+  teamId      String?
+  team        Team?       @relation(fields: [teamId], references: [id])
+  creatorId   String
+  creator     User       @relation(fields: [creatorId], references: [id])
+
+  // Task management
+  parentTaskId String?
+  parentTask   Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id])
+  subtasks     Task[]    @relation("TaskSubtasks")
+
+  // Additional features
+  taskTags     TaskTag[]
+  comments     Comment[]
+  attachments  Attachment[]
+  timeEntries  TimeEntry[]
+  watchers     WatchedTask[]
+
+  // Workflow
+  workflowId   String?
+  workflow     Workflow? @relation(fields: [workflowId], references: [id])
+
+  // SLA
+  slaId        String?
+  sla          SLA?      @relation(fields: [slaId], references: [id])
+
+  // Assigned users
+  assignees    TaskAssignee[]
+
+  @@map("tasks")
+}
+
+model TaskAssignee {
+  id     String @id @default(cuid())
+  taskId String
+  userId String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@map("task_assignees")
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -158,48 +217,6 @@ model Project {
   tasks         Task[]
   workflows     Workflow[]
   @@map("projects")
-}
-model Task {
-  id          String     @id @default(cuid())
-  title       String
-  description String?
-  type        TaskType   @default(TASK)
-  status      TaskStatus @default(OPEN)
-  priority    TaskPriority @default(MEDIUM)
-  dueDate     DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  
-  // Relationships
-  projectId   String?
-  project     Project?   @relation(fields: [projectId], references: [id])
-  teamId      String?
-  team        Team?       @relation(fields: [teamId], references: [id]) // This was missing the opposite relation
-  creatorId   String
-  creator     User       @relation(fields: [creatorId], references: [id])
-  assigneeId  String?
-  assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  
-  // Task management
-  parentTaskId String?
-  parentTask   Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id])
-  subtasks     Task[]    @relation("TaskSubtasks")
-  
-  // Additional features
-  taskTags     TaskTag[]
-  comments     Comment[]
-  attachments  Attachment[]
-  timeEntries  TimeEntry[]
-  watchers     WatchedTask[]
-  
-  // Workflow
-  workflowId   String?
-  workflow     Workflow? @relation(fields: [workflowId], references: [id])
-  
-  // SLA
-  slaId        String?
-  sla          SLA?      @relation(fields: [slaId], references: [id])
-  @@map("tasks")
 }
 model Tag {
   id        String   @id @default(cuid())

@@ -35,6 +35,9 @@ yarn-error.log*
 
 # vercel
 .vercel
+.project_structure_filter
+.project_structure_filter
+.project_structure_filter/
 
 # typescript
 *.tsbuildinfo

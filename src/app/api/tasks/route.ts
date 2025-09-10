@@ -4,11 +4,23 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
+// app/api/tasks/route.ts
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     
     if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    
+    // Get user role to determine permissions
+    const user = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true }
+    })
+    
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
@@ -20,16 +32,6 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search")
     const skip = (page - 1) * limit
     
-    // Get user role to determine permissions
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { role: true }
-    })
-    
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
-    }
-    
     // Build where clause based on user role
     const where: any = {}
     
@@ -39,7 +41,13 @@ export async function GET(request: NextRequest) {
     } else {
       // Regular users can only see tasks they're assigned to or created
       where.OR = [
-        { assigneeId: session.user.id },
+        { 
+          assignees: {
+            some: {
+              userId: session.user.id
+            }
+          }
+        },
         { creatorId: session.user.id }
       ]
     }
@@ -74,15 +82,32 @@ export async function GET(request: NextRequest) {
           creator: {
             select: { id: true, name: true, email: true, avatar: true }
           },
-          assignee: {
-            select: { id: true, name: true, email: true, avatar: true }
-          },
           project: {
             select: { id: true, name: true, key: true }
           },
           taskTags: {
             include: {
               tag: true
+            }
+          },
+          parentTask: {
+            select: {
+              id: true,
+              title: true
+            }
+          },
+          subtasks: {
+            select: {
+              id: true,
+              title: true,
+              status: true
+            }
+          },
+          assignees: {
+            include: {
+              user: {
+                select: { id: true, name: true, email: true, avatar: true }
+              }
             }
           },
           _count: {
@@ -116,7 +141,6 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -133,9 +157,10 @@ export async function POST(request: NextRequest) {
       status = "OPEN",
       priority = "MEDIUM",
       dueDate,
-      assigneeId,
+      assigneeIds = [], // Array of user IDs
       projectId,
-      tags = []
+      tags = [],
+      attachments = []
     } = body
     
     console.log("Received data:", {
@@ -145,9 +170,10 @@ export async function POST(request: NextRequest) {
       status,
       priority,
       dueDate,
-      assigneeId,
+      assigneeIds,
       projectId,
       tags,
+      attachments,
       creatorId: session.user.id
     })
     
@@ -159,37 +185,12 @@ export async function POST(request: NextRequest) {
     }
     
     // Handle special values
-    const finalAssigneeId = assigneeId === "unassigned" || assigneeId === "" ? null : assigneeId
     const finalProjectId = projectId === "noproject" || projectId === "" ? null : projectId
     
     console.log("Processed data:", {
-      finalAssigneeId,
       finalProjectId,
       creatorId: session.user.id
     })
-    
-    // Validate that the assignee exists if provided
-    if (finalAssigneeId) {
-      try {
-        console.log("Checking assignee exists:", finalAssigneeId)
-        const assignee = await db.user.findUnique({
-          where: { id: finalAssigneeId }
-        })
-        console.log("Assignee found:", assignee)
-        if (!assignee) {
-          return NextResponse.json(
-            { error: "Assignee not found" },
-            { status: 400 }
-          )
-        }
-      } catch (error) {
-        console.error("Error validating assignee:", error)
-        return NextResponse.json(
-          { error: "Invalid assignee ID" },
-          { status: 400 }
-        )
-      }
-    }
     
     // Validate that the project exists if provided
     if (finalProjectId) {
@@ -246,7 +247,6 @@ export async function POST(request: NextRequest) {
         status,
         priority,
         dueDate: dueDate ? new Date(dueDate) : null,
-        assigneeId: finalAssigneeId,
         projectId: finalProjectId,
         creatorId: session.user.id,
         taskTags: {
@@ -258,13 +258,18 @@ export async function POST(request: NextRequest) {
               }
             }
           }))
+        },
+        attachments: {
+          create: attachments.map((attachment: any) => ({
+            filename: attachment.filename,
+            fileSize: attachment.fileSize,
+            mimeType: attachment.mimeType,
+            path: attachment.path
+          }))
         }
       },
       include: {
         creator: {
-          select: { id: true, name: true, email: true, avatar: true }
-        },
-        assignee: {
           select: { id: true, name: true, email: true, avatar: true }
         },
         project: {
@@ -274,27 +279,48 @@ export async function POST(request: NextRequest) {
           include: {
             tag: true
           }
+        },
+        attachments: true,
+        assignees: {
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, avatar: true }
+            }
+          }
         }
       }
     })
     
-    console.log("Task created successfully:", task)
-    
-    // Create notifications
-    
-    // 1. Notify the assignee if task is assigned to someone else
-    if (finalAssigneeId && finalAssigneeId !== session.user.id) {
-      await db.notification.create({
-        data: {
-          title: "New Task Assigned",
-          message: `You have been assigned to "${title}"`,
-          type: "TASK_ASSIGNED",
-          userId: finalAssigneeId
-        }
+    // Add assignees to the task
+    if (assigneeIds.length > 0) {
+      await db.taskAssignee.createMany({
+        data: assigneeIds.map((userId: string) => ({
+          taskId: task.id,
+          userId
+        }))
       })
     }
     
-    // 2. If task is part of a project, notify project members
+    console.log("Task created successfully:", task)
+    
+    // Create notifications for each assignee
+    if (assigneeIds.length > 0) {
+      for (const userId of assigneeIds) {
+        // Don't notify the creator if they're also an assignee
+        if (userId !== session.user.id) {
+          await db.notification.create({
+            data: {
+              title: "New Task Assigned",
+              message: `You have been assigned to "${title}"`,
+              type: "TASK_ASSIGNED",
+              userId
+            }
+          })
+        }
+      }
+    }
+    
+    // If task is part of a project, notify project members
     if (finalProjectId) {
       const projectMembers = await db.project.findUnique({
         where: { id: finalProjectId },
@@ -312,8 +338,8 @@ export async function POST(request: NextRequest) {
       
       if (projectMembers && projectMembers.members.length > 0) {
         for (const member of projectMembers.members) {
-          // Don't notify the assignee twice
-          if (member.id !== finalAssigneeId) {
+          // Don't notify assignees twice
+          if (!assigneeIds.includes(member.id)) {
             await db.notification.create({
               data: {
                 title: "New Task in Project",
@@ -327,36 +353,33 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // 3. If task is part of a team, notify team members
-    if (task.teamId) {
-      const teamMembers = await db.teamMembership.findMany({
-        where: {
-          teamId: task.teamId,
-          userId: {
-            not: session.user.id // Exclude the creator
+    // Fetch the task again with assignees included
+    const taskWithAssignees = await db.task.findUnique({
+      where: { id: task.id },
+      include: {
+        creator: {
+          select: { id: true, name: true, email: true, avatar: true }
+        },
+        project: {
+          select: { id: true, name: true, key: true }
+        },
+        taskTags: {
+          include: {
+            tag: true
           }
         },
-        select: { userId: true }
-      })
-      
-      if (teamMembers.length > 0) {
-        for (const member of teamMembers) {
-          // Don't notify the assignee twice
-          if (member.userId !== finalAssigneeId) {
-            await db.notification.create({
-              data: {
-                title: "New Task in Team",
-                message: `A new task "${title}" has been added to the team`,
-                type: "TASK_UPDATED",
-                userId: member.userId
-              }
-            })
+        attachments: true,
+        assignees: {
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, avatar: true }
+            }
           }
         }
       }
-    }
+    })
     
-    return NextResponse.json(task, { status: 201 })
+    return NextResponse.json(taskWithAssignees, { status: 201 })
   } catch (error) {
     console.error("Error creating task:", error)
     return NextResponse.json(

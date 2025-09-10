@@ -1,5 +1,4 @@
 "use client"
-
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { MainLayout } from "@/components/layout/main-layout"
@@ -30,6 +29,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -37,64 +37,50 @@ import { toast } from "sonner"
 interface Task {
   id: string
   title: string
-  description: string
-  status: string
-  priority: string
-  type: string
+  description: string | null
+  type: "TASK" | "BUG" | "STORY" | "EPIC" | "SUBTASK"
+  status: "OPEN" | "IN_PROGRESS" | "REVIEW" | "DONE" | "CLOSED" | "CANCELLED"
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT"
   dueDate: string | null
   createdAt: string
   updatedAt: string
+  
   creator: {
     id: string
-    name: string
+    name: string | null
     email: string
     avatar: string | null
   }
-  assignee: {
-    id: string
-    name: string
-    email: string
-    avatar: string | null
-  } | null
+  
   project: {
     id: string
     name: string
     key: string
   } | null
-  taskTags: Array<{ // Changed from tags to taskTags
+  
+  taskTags: Array<{
     tag: {
       id: string
       name: string
+      color: string | null
     }
   }>
-  comments: Array<{
-    id: string
-    content: string
-    createdAt: string
-    author: {
+  
+  assignees: Array<{
+    user: {
       id: string
-      name: string
+      name: string | null
       email: string
       avatar: string | null
     }
   }>
+  
   attachments: Array<{
     id: string
     filename: string
     fileSize: number
     mimeType: string
-    uploadedAt: string
-  }>
-  timeEntries: Array<{
-    id: string
-    description: string
-    duration: number
-    date: string
-    user: {
-      id: string
-      name: string
-      email: string
-    }
+    path: string
   }>
 }
 
@@ -107,6 +93,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
   const [newComment, setNewComment] = useState("")
   const [addingComment, setAddingComment] = useState(false)
   const [resolvedParams, setResolvedParams] = useState<{ id: string } | null>(null)
+  const [updatingStatus, setUpdatingStatus] = useState(false)
 
   // Resolve the params promise
   useEffect(() => {
@@ -125,11 +112,9 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
 
   const fetchTask = async () => {
     if (!resolvedParams) return
-
     try {
       setLoading(true)
       const response = await fetch(`/api/tasks/${resolvedParams.id}`)
-
       if (!response.ok) {
         if (response.status === 404) {
           setError("Task not found")
@@ -140,7 +125,6 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
         }
         return
       }
-
       const taskData = await response.json()
       setTask(taskData)
     } catch (error) {
@@ -182,9 +166,36 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  const handleStatusChange = async (newStatus: string) => {
+    if (!task) return
+
+    try {
+      setUpdatingStatus(true)
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status: newStatus }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update status")
+      }
+
+      // Update the task state with the new status
+      setTask({ ...task, status: newStatus })
+      toast.success("Status updated successfully")
+    } catch (error) {
+      console.error("Error updating status:", error)
+      toast.error("Failed to update status")
+    } finally {
+      setUpdatingStatus(false)
+    }
+  }
+
   const handleAddComment = async () => {
     if (!newComment.trim() || !task) return
-
     try {
       setAddingComment(true)
       const response = await fetch(`/api/tasks/${task.id}/comments`, {
@@ -196,11 +207,9 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
           content: newComment.trim(),
         }),
       })
-
       if (!response.ok) {
         throw new Error("Failed to add comment")
       }
-
       // Refresh the task data to get the new comment
       await fetchTask()
       setNewComment("")
@@ -215,20 +224,16 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
 
   const handleDeleteTask = async () => {
     if (!task) return
-
     if (!confirm("Are you sure you want to delete this task?")) {
       return
     }
-
     try {
       const response = await fetch(`/api/tasks/${task.id}`, {
         method: "DELETE",
       })
-
       if (!response.ok) {
         throw new Error("Failed to delete task")
       }
-
       toast.success("Task deleted successfully")
       router.push("/tasks")
     } catch (error) {
@@ -349,9 +354,24 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                     <CardTitle>Task Details</CardTitle>
                   </div>
                   <div className="flex gap-2">
-                    <Badge className={getStatusColor(task.status)}>
-                      {task.status.replace("_", " ")}
-                    </Badge>
+                    {/* Status Selector */}
+                    <Select
+                      value={task.status}
+                      onValueChange={handleStatusChange}
+                      disabled={updatingStatus}
+                    >
+                      <SelectTrigger className="w-40">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="OPEN">To Do</SelectItem>
+                        <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+                        <SelectItem value="REVIEW">Review</SelectItem>
+                        <SelectItem value="DONE">Done</SelectItem>
+                        <SelectItem value="CLOSED">Closed</SelectItem>
+                        <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Badge className={getPriorityColor(task.priority)}>
                       {task.priority}
                     </Badge>
@@ -365,6 +385,21 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                     <p className="text-muted-foreground">{task.description}</p>
                   </div>
 
+                  {/* Parent Task Section */}
+                  {task.parentTask && (
+                    <div>
+                      <h4 className="font-medium mb-2">Parent Task</h4>
+                      <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                        <Link href={`/tasks/${task.parentTask.id}`} className="text-blue-600 hover:underline font-medium">
+                          {task.parentTask.title}
+                        </Link>
+                        <Badge className={getStatusColor(task.parentTask.status)}>
+                          {task.parentTask.status.replace("_", " ")}
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap gap-2">
                     {task.taskTags.map((taskTag, index) => ( // Changed from tags to taskTags
                       <Badge key={index} variant="outline">
@@ -372,7 +407,6 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                       </Badge>
                     ))}
                   </div>
-
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div className="flex items-center gap-2">
                       <User className="h-4 w-4 text-muted-foreground" />
@@ -428,7 +462,6 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                       </div>
                     </div>
                   ))}
-
                   <div className="flex gap-3">
                     <Avatar className="h-8 w-8">
                       <AvatarImage src={session?.user?.avatar || ""} />
@@ -502,34 +535,38 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
               <CardHeader>
                 <CardTitle>People</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Avatar className="h-8 w-8">
+              <CardContent className="space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Creator</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Avatar className="h-6 w-6">
                       <AvatarImage src={task.creator.avatar || ""} />
                       <AvatarFallback>
-                        {task.creator.name.charAt(0)}
+                        {task.creator.name?.charAt(0) || task.creator.email.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <div>
-                      <p className="font-medium">{task.creator.name}</p>
-                      <p className="text-sm text-muted-foreground">Creator</p>
-                    </div>
+                    <span>{task.creator.name || task.creator.email}</span>
                   </div>
                 </div>
-                {task.assignee && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={task.assignee.avatar || ""} />
-                        <AvatarFallback>
-                          {task.assignee.name.charAt(0)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-medium">{task.assignee.name}</p>
-                        <p className="text-sm text-muted-foreground">Assignee</p>
-                      </div>
+
+                {/* Display multiple assignees */}
+                {task.assignees && task.assignees.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Assignees ({task.assignees.length})
+                    </p>
+                    <div className="space-y-2 mt-1">
+                      {task.assignees.map((assignee) => (
+                        <div key={assignee.user.id} className="flex items-center gap-2">
+                          <Avatar className="h-6 w-6">
+                            <AvatarImage src={assignee.user.avatar || ""} />
+                            <AvatarFallback>
+                              {assignee.user.name?.charAt(0) || assignee.user.email.charAt(0)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span>{assignee.user.name || assignee.user.email}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
