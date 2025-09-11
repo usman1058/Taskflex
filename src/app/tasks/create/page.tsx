@@ -1,6 +1,4 @@
-// app/tasks/create/page.tsx
 "use client"
-
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { MainLayout } from "@/components/layout/main-layout"
@@ -11,10 +9,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Plus, X, Loader2 } from "lucide-react"
+import { ArrowLeft, Plus, X, Loader2, User, Calendar, Tag } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { UserSearch } from "@/components/ui/user-search"
 import { AttachmentUpload } from "@/components/ui/attachment-upload"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 interface User {
   id: string
@@ -41,7 +40,7 @@ export default function CreateTaskPage() {
     status: "OPEN",
     priority: "MEDIUM",
     dueDate: "",
-    assigneeId: "",
+    assigneeIds: [] as string[],
     projectId: "",
     tags: [] as string[],
   })
@@ -51,14 +50,14 @@ export default function CreateTaskPage() {
   const [users, setUsers] = useState<User[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loadingData, setLoadingData] = useState(true)
-  const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [selectedUsers, setSelectedUsers] = useState<User[]>([])
   const [attachments, setAttachments] = useState<File[]>([])
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
-
+  
   useEffect(() => {
     fetchData()
   }, [])
-
+  
   const fetchData = async () => {
     try {
       // Fetch assignees (users that can be assigned tasks)
@@ -69,7 +68,7 @@ export default function CreateTaskPage() {
       } else {
         console.error("Failed to fetch assignees")
       }
-
+      
       // Fetch projects
       const projectsResponse = await fetch("/api/projects")
       if (projectsResponse.ok) {
@@ -84,11 +83,11 @@ export default function CreateTaskPage() {
       setLoadingData(false)
     }
   }
-
+  
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
-
+  
   const handleAddTag = () => {
     if (newTag.trim() && !formData.tags.includes(newTag.trim())) {
       setFormData(prev => ({
@@ -98,24 +97,32 @@ export default function CreateTaskPage() {
       setNewTag("")
     }
   }
-
+  
   const handleRemoveTag = (tagToRemove: string) => {
     setFormData(prev => ({
       ...prev,
       tags: prev.tags.filter(tag => tag !== tagToRemove)
     }))
   }
-
+  
   const handleUserSelect = (user: User) => {
-    setSelectedUser(user)
-    setFormData(prev => ({ ...prev, assigneeId: user.id }))
+    if (!selectedUsers.some(u => u.id === user.id)) {
+      setSelectedUsers(prev => [...prev, user])
+      setFormData(prev => ({
+        ...prev,
+        assigneeIds: [...prev.assigneeIds, user.id]
+      }))
+    }
   }
-
-  const handleClearUser = () => {
-    setSelectedUser(null)
-    setFormData(prev => ({ ...prev, assigneeId: "" }))
+  
+  const handleRemoveUser = (userId: string) => {
+    setSelectedUsers(prev => prev.filter(u => u.id !== userId))
+    setFormData(prev => ({
+      ...prev,
+      assigneeIds: prev.assigneeIds.filter(id => id !== userId)
+    }))
   }
-
+  
   const uploadAttachments = async (): Promise<any[]> => {
     if (attachments.length === 0) return []
     
@@ -148,7 +155,7 @@ export default function CreateTaskPage() {
     
     return uploadedAttachments
   }
-
+  
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -156,21 +163,20 @@ export default function CreateTaskPage() {
       alert("Title is required")
       return
     }
-
+    
     setIsLoading(true)
-
     try {
       // Upload attachments first
       const uploadedAttachments = await uploadAttachments()
       
-      // Prepare data for API - convert special values to empty strings
+      // Prepare data for API
       const apiData = {
         ...formData,
-        assigneeId: formData.assigneeId === "unassigned" ? "" : formData.assigneeId,
+        dueDate: formData.dueDate || null,
         projectId: formData.projectId === "noproject" ? "" : formData.projectId,
         attachments: uploadedAttachments
       }
-
+      
       const response = await fetch("/api/tasks", {
         method: "POST",
         headers: {
@@ -178,7 +184,7 @@ export default function CreateTaskPage() {
         },
         body: JSON.stringify(apiData),
       })
-
+      
       if (response.ok) {
         const task = await response.json()
         router.push(`/tasks/${task.id}`)
@@ -194,7 +200,7 @@ export default function CreateTaskPage() {
       setIsLoading(false)
     }
   }
-
+  
   if (loadingData) {
     return (
       <MainLayout>
@@ -204,7 +210,7 @@ export default function CreateTaskPage() {
       </MainLayout>
     )
   }
-
+  
   return (
     <MainLayout>
       <div className="max-w-6xl mx-auto space-y-6 p-4 md:p-6">
@@ -221,7 +227,7 @@ export default function CreateTaskPage() {
             </p>
           </div>
         </div>
-
+        
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Basic Information */}
@@ -254,7 +260,7 @@ export default function CreateTaskPage() {
                     rows={4}
                   />
                 </div>
-
+                
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="type">Type</Label>
@@ -267,10 +273,11 @@ export default function CreateTaskPage() {
                         <SelectItem value="BUG">Bug</SelectItem>
                         <SelectItem value="STORY">Story</SelectItem>
                         <SelectItem value="EPIC">Epic</SelectItem>
+                        <SelectItem value="SUBTASK">Subtask</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-
+                  
                   <div>
                     <Label htmlFor="priority">Priority</Label>
                     <Select value={formData.priority} onValueChange={(value) => handleInputChange("priority", value)}>
@@ -286,28 +293,7 @@ export default function CreateTaskPage() {
                     </Select>
                   </div>
                 </div>
-
-                <div>
-                  <Label htmlFor="dueDate">Due Date</Label>
-                  <Input
-                    id="dueDate"
-                    type="date"
-                    value={formData.dueDate}
-                    onChange={(e) => handleInputChange("dueDate", e.target.value)}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Assignment & Organization */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Assignment & Organization</CardTitle>
-                <CardDescription>
-                  Assign the task and organize it within projects
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+                
                 <div>
                   <Label htmlFor="status">Status</Label>
                   <Select value={formData.status} onValueChange={(value) => handleInputChange("status", value)}>
@@ -323,17 +309,59 @@ export default function CreateTaskPage() {
                     </SelectContent>
                   </Select>
                 </div>
-
+                
                 <div>
-                  <Label htmlFor="assignee">Assignee</Label>
-                  <UserSearch 
-                    users={users}
-                    selectedUser={selectedUser}
-                    onUserSelect={handleUserSelect}
-                    onClearUser={handleClearUser}
+                  <Label htmlFor="dueDate">Due Date</Label>
+                  <Input
+                    id="dueDate"
+                    type="date"
+                    value={formData.dueDate}
+                    onChange={(e) => handleInputChange("dueDate", e.target.value)}
                   />
                 </div>
-
+              </CardContent>
+            </Card>
+            
+            {/* Assignment & Organization */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Assignment & Organization</CardTitle>
+                <CardDescription>
+                  Assign the task and organize it within projects
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="assignees">Assignees</Label>
+                  <UserSearch 
+                    users={users}
+                    selectedUsers={selectedUsers}
+                    onUserSelect={handleUserSelect}
+                    onRemoveUser={handleRemoveUser}
+                    multiSelect={true}
+                  />
+                  
+                  {selectedUsers.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {selectedUsers.map((user) => (
+                        <Badge key={user.id} variant="secondary" className="flex items-center gap-1">
+                          <Avatar className="h-4 w-4 mr-1">
+                            <AvatarImage src={user.avatar || ""} />
+                            <AvatarFallback className="text-xs">
+                              {user.name?.charAt(0) || user.email.charAt(0)}
+                            </AvatarFallback>
+                          </Avatar>
+                          {user.name || user.email}
+                          <X 
+                            className="h-3 w-3 cursor-pointer" 
+                            onClick={() => handleRemoveUser(user.id)}
+                          />
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                
                 <div>
                   <Label htmlFor="project">Project</Label>
                   <Select value={formData.projectId} onValueChange={(value) => handleInputChange("projectId", value)}>
@@ -353,11 +381,14 @@ export default function CreateTaskPage() {
               </CardContent>
             </Card>
           </div>
-
+          
           {/* Tags */}
           <Card>
             <CardHeader>
-              <CardTitle>Tags</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Tag className="h-5 w-5" />
+                Tags
+              </CardTitle>
               <CardDescription>
                 Add tags to categorize and organize your task
               </CardDescription>
@@ -393,14 +424,14 @@ export default function CreateTaskPage() {
               </div>
             </CardContent>
           </Card>
-
+          
           {/* Attachments */}
           <AttachmentUpload 
             attachments={attachments}
             onAttachmentsChange={setAttachments}
             uploading={uploadingAttachments}
           />
-
+          
           {/* Submit Button */}
           <div className="flex justify-end gap-4">
             <Button type="button" variant="outline" onClick={() => router.back()}>

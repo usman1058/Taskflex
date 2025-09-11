@@ -1,10 +1,7 @@
-// app/api/tasks/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-
-// app/api/tasks/route.ts
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,7 +11,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
-    // Get user role to determine permissions
     const user = await db.user.findUnique({
       where: { id: session.user.id },
       select: { role: true }
@@ -141,6 +137,7 @@ export async function GET(request: NextRequest) {
     )
   }
 }
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -163,20 +160,6 @@ export async function POST(request: NextRequest) {
       attachments = []
     } = body
     
-    console.log("Received data:", {
-      title,
-      description,
-      type,
-      status,
-      priority,
-      dueDate,
-      assigneeIds,
-      projectId,
-      tags,
-      attachments,
-      creatorId: session.user.id
-    })
-    
     if (!title) {
       return NextResponse.json(
         { error: "Title is required" },
@@ -187,56 +170,18 @@ export async function POST(request: NextRequest) {
     // Handle special values
     const finalProjectId = projectId === "noproject" || projectId === "" ? null : projectId
     
-    console.log("Processed data:", {
-      finalProjectId,
-      creatorId: session.user.id
-    })
-    
     // Validate that the project exists if provided
     if (finalProjectId) {
-      try {
-        console.log("Checking project exists:", finalProjectId)
-        const project = await db.project.findUnique({
-          where: { id: finalProjectId }
-        })
-        console.log("Project found:", project)
-        if (!project) {
-          return NextResponse.json(
-            { error: "Project not found" },
-            { status: 400 }
-          )
-        }
-      } catch (error) {
-        console.error("Error validating project:", error)
-        return NextResponse.json(
-          { error: "Invalid project ID" },
-          { status: 400 }
-        )
-      }
-    }
-    
-    // Validate that the creator exists
-    try {
-      console.log("Checking creator exists:", session.user.id)
-      const creator = await db.user.findUnique({
-        where: { id: session.user.id }
+      const project = await db.project.findUnique({
+        where: { id: finalProjectId }
       })
-      console.log("Creator found:", creator)
-      if (!creator) {
+      if (!project) {
         return NextResponse.json(
-          { error: "Creator not found" },
+          { error: "Project not found" },
           { status: 400 }
         )
       }
-    } catch (error) {
-      console.error("Error validating creator:", error)
-      return NextResponse.json(
-        { error: "Invalid creator ID" },
-        { status: 400 }
-      )
     }
-    
-    console.log("All validations passed. Creating task...")
     
     // Create the task
     const task = await db.task.create({
@@ -299,9 +244,15 @@ export async function POST(request: NextRequest) {
           userId
         }))
       })
+    } else {
+      // If no assignees are specified, assign the task to the creator
+      await db.taskAssignee.create({
+        data: {
+          taskId: task.id,
+          userId: session.user.id
+        }
+      })
     }
-    
-    console.log("Task created successfully:", task)
     
     // Create notifications for each assignee
     if (assigneeIds.length > 0) {

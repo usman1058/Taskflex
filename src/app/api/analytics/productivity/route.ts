@@ -1,4 +1,3 @@
-// app/api/analytics/productivity/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
@@ -15,6 +14,23 @@ export async function GET(request: NextRequest) {
     
     const { searchParams } = new URL(request.url)
     const weeks = parseInt(searchParams.get("weeks") || "4")
+    const organizationId = searchParams.get("organizationId")
+    
+    // Build the base where clause
+    const baseWhere: any = {
+      status: "DONE",
+      OR: [
+        { assignees: { some: { userId: session.user.id } } },
+        { creatorId: session.user.id }
+      ]
+    }
+    
+    // Add organization filter if provided
+    if (organizationId && organizationId !== "ALL") {
+      baseWhere.project = {
+        organizationId: organizationId
+      }
+    }
     
     // Get tasks completed per day for the last N weeks
     const now = new Date()
@@ -36,11 +52,7 @@ export async function GET(request: NextRequest) {
         daysInWeek.map(async (day) => {
           const completedTasks = await db.task.count({
             where: {
-              status: "DONE",
-              OR: [
-                { assigneeId: session.user.id },
-                { creatorId: session.user.id }
-              ],
+              ...baseWhere,
               updatedAt: {
                 gte: day,
                 lt: new Date(day.getTime() + 24 * 60 * 60 * 1000) // Next day
@@ -69,13 +81,7 @@ export async function GET(request: NextRequest) {
     
     // Get average time to complete tasks
     const completedTasks = await db.task.findMany({
-      where: {
-        status: "DONE",
-        OR: [
-          { assigneeId: session.user.id },
-          { creatorId: session.user.id }
-        ]
-      },
+      where: baseWhere,
       select: {
         createdAt: true,
         updatedAt: true
@@ -94,13 +100,7 @@ export async function GET(request: NextRequest) {
     
     // Get current streak of completed tasks
     const sortedTasks = await db.task.findMany({
-      where: {
-        status: "DONE",
-        OR: [
-          { assigneeId: session.user.id },
-          { creatorId: session.user.id }
-        ]
-      },
+      where: baseWhere,
       orderBy: {
         updatedAt: "desc"
       },
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching productivity analytics:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: error instanceof Error ? error.message : "Internal server error" },
       { status: 500 }
     )
   }

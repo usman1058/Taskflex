@@ -19,7 +19,9 @@ import {
   CheckCircle,
   AlertTriangle,
   Circle,
-  Loader2
+  Loader2,
+  Tag,
+  FolderOpen
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -33,6 +35,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { format } from "date-fns"
 
 interface Task {
   id: string
@@ -82,6 +85,36 @@ interface Task {
     mimeType: string
     path: string
   }>
+
+  comments: Array<{
+    id: string
+    content: string
+    createdAt: string
+    author: {
+      id: string
+      name: string | null
+      email: string
+      avatar: string | null
+    }
+  }>
+
+  timeEntries: Array<{
+    id: string
+    description: string | null
+    duration: number
+    date: string
+    user: {
+      id: string
+      name: string | null
+      email: string
+    }
+  }>
+
+  parentTask: {
+    id: string
+    title: string
+    status: string
+  } | null
 }
 
 export default function TaskDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -94,7 +127,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
   const [addingComment, setAddingComment] = useState(false)
   const [resolvedParams, setResolvedParams] = useState<{ id: string } | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
-
+  
   // Resolve the params promise
   useEffect(() => {
     const resolveParams = async () => {
@@ -103,18 +136,20 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
     }
     resolveParams()
   }, [params])
-
+  
   useEffect(() => {
     if (resolvedParams?.id) {
       fetchTask()
     }
   }, [resolvedParams?.id])
-
+  
   const fetchTask = async () => {
     if (!resolvedParams) return
+    
     try {
       setLoading(true)
       const response = await fetch(`/api/tasks/${resolvedParams.id}`)
+      
       if (!response.ok) {
         if (response.status === 404) {
           setError("Task not found")
@@ -125,6 +160,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
         }
         return
       }
+      
       const taskData = await response.json()
       setTask(taskData)
     } catch (error) {
@@ -134,7 +170,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       setLoading(false)
     }
   }
-
+  
   const getStatusColor = (status: string) => {
     switch (status) {
       case "OPEN": return "bg-gray-100 text-gray-800"
@@ -145,7 +181,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       default: return "bg-gray-100 text-gray-800"
     }
   }
-
+  
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case "LOW": return "bg-green-100 text-green-800"
@@ -155,7 +191,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       default: return "bg-gray-100 text-gray-800"
     }
   }
-
+  
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "OPEN": return <Circle className="h-4 w-4" />
@@ -165,10 +201,10 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       default: return <Circle className="h-4 w-4" />
     }
   }
-
+  
   const handleStatusChange = async (newStatus: string) => {
     if (!task) return
-
+    
     try {
       setUpdatingStatus(true)
       const response = await fetch(`/api/tasks/${task.id}`, {
@@ -178,11 +214,11 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
         },
         body: JSON.stringify({ status: newStatus }),
       })
-
+      
       if (!response.ok) {
         throw new Error("Failed to update status")
       }
-
+      
       // Update the task state with the new status
       setTask({ ...task, status: newStatus })
       toast.success("Status updated successfully")
@@ -193,9 +229,10 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       setUpdatingStatus(false)
     }
   }
-
+  
   const handleAddComment = async () => {
     if (!newComment.trim() || !task) return
+    
     try {
       setAddingComment(true)
       const response = await fetch(`/api/tasks/${task.id}/comments`, {
@@ -207,9 +244,11 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
           content: newComment.trim(),
         }),
       })
+      
       if (!response.ok) {
         throw new Error("Failed to add comment")
       }
+      
       // Refresh the task data to get the new comment
       await fetchTask()
       setNewComment("")
@@ -221,19 +260,23 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       setAddingComment(false)
     }
   }
-
+  
   const handleDeleteTask = async () => {
     if (!task) return
+    
     if (!confirm("Are you sure you want to delete this task?")) {
       return
     }
+    
     try {
       const response = await fetch(`/api/tasks/${task.id}`, {
         method: "DELETE",
       })
+      
       if (!response.ok) {
         throw new Error("Failed to delete task")
       }
+      
       toast.success("Task deleted successfully")
       router.push("/tasks")
     } catch (error) {
@@ -241,7 +284,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       toast.error("Failed to delete task")
     }
   }
-
+  
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes'
     const k = 1024
@@ -249,7 +292,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
     const i = Math.floor(Math.log(bytes) / Math.log(k))
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
-
+  
   if (loading) {
     return (
       <MainLayout>
@@ -259,7 +302,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       </MainLayout>
     )
   }
-
+  
   if (error) {
     return (
       <MainLayout>
@@ -275,7 +318,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       </MainLayout>
     )
   }
-
+  
   if (!task) {
     return (
       <MainLayout>
@@ -291,23 +334,23 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       </MainLayout>
     )
   }
-
+  
   const totalTimeSpent = task.timeEntries.reduce((total, entry) => total + entry.duration, 0)
   const hours = Math.floor(totalTimeSpent / 60)
   const minutes = totalTimeSpent % 60
-
+  
   return (
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={() => router.back()}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">{task.title}</h1>
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{task.title}</h1>
               <p className="text-muted-foreground">
                 Task #{task.id} • {task.project?.name || "No project"}
               </p>
@@ -341,14 +384,14 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
             </DropdownMenu>
           </div>
         </div>
-
+        
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Task Details */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     {getStatusIcon(task.status)}
                     <CardTitle>Task Details</CardTitle>
@@ -382,9 +425,9 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                 <div className="space-y-4">
                   <div>
                     <h4 className="font-medium mb-2">Description</h4>
-                    <p className="text-muted-foreground">{task.description}</p>
+                    <p className="text-muted-foreground whitespace-pre-line">{task.description || "No description provided"}</p>
                   </div>
-
+                  
                   {/* Parent Task Section */}
                   {task.parentTask && (
                     <div>
@@ -399,46 +442,37 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                       </div>
                     </div>
                   )}
-
+                  
                   <div className="flex flex-wrap gap-2">
-                    {task.taskTags.map((taskTag, index) => ( // Changed from tags to taskTags
+                    {task.taskTags.map((taskTag, index) => (
                       <Badge key={index} variant="outline">
                         {taskTag.tag.name}
                       </Badge>
                     ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                     <div className="flex items-center gap-2">
                       <User className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">Assignee:</span>
-                      <span>{task.assignee?.name || "Unassigned"}</span>
+                      <span className="text-muted-foreground">Type:</span>
+                      <span>{task.type}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-muted-foreground" />
                       <span className="text-muted-foreground">Due Date:</span>
-                      <span>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "No due date"}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">Time Spent:</span>
-                      <span>{hours}h {minutes}m</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Circle className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">Type:</span>
-                      <span>{task.type}</span>
+                      <span>{task.dueDate ? format(new Date(task.dueDate), "MMM d, yyyy") : "No due date"}</span>
                     </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
-
+            
             {/* Comments */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <MessageSquare className="h-5 w-5" />
-                  Comments
+                  Comments ({task.comments.length})
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -448,20 +482,21 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                       <Avatar className="h-8 w-8">
                         <AvatarImage src={comment.author.avatar || ""} />
                         <AvatarFallback>
-                          {comment.author.name.charAt(0)}
+                          {comment.author.name?.charAt(0) || comment.author.email.charAt(0)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium">{comment.author.name}</span>
+                          <span className="font-medium">{comment.author.name || comment.author.email}</span>
                           <span className="text-sm text-muted-foreground">
-                            {new Date(comment.createdAt).toLocaleString()}
+                            {format(new Date(comment.createdAt), "MMM d, yyyy 'at' h:mm a")}
                           </span>
                         </div>
-                        <p className="text-sm">{comment.content}</p>
+                        <p className="text-sm whitespace-pre-line">{comment.content}</p>
                       </div>
                     </div>
                   ))}
+                  
                   <div className="flex gap-3">
                     <Avatar className="h-8 w-8">
                       <AvatarImage src={session?.user?.avatar || ""} />
@@ -496,38 +531,42 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                 </div>
               </CardContent>
             </Card>
-
+            
             {/* Attachments */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Paperclip className="h-5 w-5" />
-                  Attachments
+                  Attachments ({task.attachments.length})
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {task.attachments.map((attachment) => (
-                    <div key={attachment.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <Paperclip className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">{attachment.filename}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {formatFileSize(attachment.fileSize)} • {new Date(attachment.uploadedAt).toLocaleDateString()}
-                          </p>
+                  {task.attachments.length > 0 ? (
+                    task.attachments.map((attachment) => (
+                      <div key={attachment.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <Paperclip className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="font-medium">{attachment.filename}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {formatFileSize(attachment.fileSize)} • {format(new Date(attachment.uploadedAt || attachment.createdAt), "MMM d, yyyy")}
+                            </p>
+                          </div>
                         </div>
+                        <Button variant="outline" size="sm">
+                          Download
+                        </Button>
                       </div>
-                      <Button variant="outline" size="sm">
-                        Download
-                      </Button>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground text-center py-4">No attachments</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
           </div>
-
+          
           {/* Sidebar */}
           <div className="space-y-6">
             {/* People */}
@@ -548,7 +587,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                     <span>{task.creator.name || task.creator.email}</span>
                   </div>
                 </div>
-
+                
                 {/* Display multiple assignees */}
                 {task.assignees && task.assignees.length > 0 && (
                   <div>
@@ -572,11 +611,34 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                 )}
               </CardContent>
             </Card>
-
+            
+            {/* Project */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FolderOpen className="h-5 w-5" />
+                  Project
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {task.project ? (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{task.project.key}</Badge>
+                    <span>{task.project.name}</span>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">No project</p>
+                )}
+              </CardContent>
+            </Card>
+            
             {/* Time Tracking */}
             <Card>
               <CardHeader>
-                <CardTitle>Time Tracking</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Time Tracking
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -584,21 +646,26 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                     <span className="text-muted-foreground">Total Time:</span>
                     <span className="font-medium">{hours}h {minutes}m</span>
                   </div>
-                  {task.timeEntries.map((entry) => (
-                    <div key={entry.id} className="text-sm">
-                      <div className="flex justify-between">
-                        <span>{entry.description}</span>
-                        <span>{Math.floor(entry.duration / 60)}h {entry.duration % 60}m</span>
-                      </div>
-                      <p className="text-muted-foreground">
-                        {entry.user.name} • {new Date(entry.date).toLocaleDateString()}
-                      </p>
+                  
+                  {task.timeEntries.length > 0 && (
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {task.timeEntries.map((entry) => (
+                        <div key={entry.id} className="text-sm border-b pb-2 last:border-0 last:pb-0">
+                          <div className="flex justify-between">
+                            <span>{entry.description || "Time entry"}</span>
+                            <span>{Math.floor(entry.duration / 60)}h {entry.duration % 60}m</span>
+                          </div>
+                          <p className="text-muted-foreground">
+                            {entry.user.name || entry.user.email} • {format(new Date(entry.date), "MMM d, yyyy")}
+                          </p>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               </CardContent>
             </Card>
-
+            
             {/* Activity */}
             <Card>
               <CardHeader>
@@ -608,16 +675,16 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                 <div className="space-y-3 text-sm">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span>Task created by {task.creator.name}</span>
+                    <span>Task created by {task.creator.name || task.creator.email}</span>
                     <span className="text-muted-foreground">
-                      {new Date(task.createdAt).toLocaleDateString()}
+                      {format(new Date(task.createdAt), "MMM d, yyyy")}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                     <span>Last updated</span>
                     <span className="text-muted-foreground">
-                      {new Date(task.updatedAt).toLocaleDateString()}
+                      {format(new Date(task.updatedAt), "MMM d, yyyy")}
                     </span>
                   </div>
                 </div>

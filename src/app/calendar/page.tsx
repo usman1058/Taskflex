@@ -1,4 +1,3 @@
-// app/calendar/page.tsx
 "use client"
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
@@ -16,14 +15,18 @@ import {
   Clock,
   AlertCircle,
   CheckCircle,
-  Plus
+  Plus,
+  Building,
+  Users,
+  Calendar as CalendarDays
 } from "lucide-react"
 import FullCalendar from "@fullcalendar/react"
 import dayGridPlugin from "@fullcalendar/daygrid"
 import timeGridPlugin from "@fullcalendar/timegrid"
 import interactionPlugin from "@fullcalendar/interaction"
-import { format, addMonths, subMonths, startOfMonth, endOfMonth } from "date-fns"
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, isWithinInterval } from "date-fns"
 import Link from "next/link"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface CalendarEvent {
   id: string
@@ -40,8 +43,12 @@ interface CalendarEvent {
     projectId?: string
     projectName?: string
     projectKey?: string
+    organizationId?: string
     assigneeName?: string
     assigneeEmail?: string
+    creatorName?: string
+    creatorEmail?: string
+    hasDueDate?: boolean
   }
 }
 
@@ -51,18 +58,33 @@ interface Task {
   description?: string
   status: string
   priority: string
-  dueDate: string
+  dueDate?: string
+  createdAt: string
   project?: {
     id: string
     name: string
     key: string
+    organizationId: string
   }
-  assignee?: {
+  assignees?: {
+    user: {
+      id: string
+      name?: string
+      email: string
+      avatar?: string
+    }
+  }[]
+  creator: {
     id: string
     name?: string
     email: string
     avatar?: string
   }
+}
+
+interface Organization {
+  id: string
+  name: string
 }
 
 export default function CalendarPage() {
@@ -73,10 +95,27 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [filter, setFilter] = useState("ALL")
+  const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [selectedOrganization, setSelectedOrganization] = useState("ALL")
+  const [debugInfo, setDebugInfo] = useState<any>(null)
 
   useEffect(() => {
+    fetchOrganizations()
     fetchCalendarEvents()
-  }, [currentDate, filter])
+  }, [currentDate, filter, selectedOrganization])
+
+  const fetchOrganizations = async () => {
+    try {
+      const response = await fetch("/api/organizations")
+      if (response.ok) {
+        const organizationsData = await response.json()
+        setOrganizations(organizationsData)
+        console.log(`Fetched ${organizationsData.length} organizations`)
+      }
+    } catch (error) {
+      console.error("Error fetching organizations:", error)
+    }
+  }
 
   const fetchCalendarEvents = async () => {
     try {
@@ -91,26 +130,45 @@ export default function CalendarPage() {
         endDate
       })
       
-      const response = await fetch(`/api/calendar?${params}`)
+      // Add organization filter if selected
+      if (selectedOrganization !== "ALL") {
+        params.append("organizationId", selectedOrganization)
+      }
+      
+      const url = `/api/calendar?${params}`
+      console.log(`Fetching calendar events from: ${url}`)
+      
+      const response = await fetch(url)
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch calendar events: ${response.status}`)
+        const errorData = await response.json()
+        throw new Error(`Failed to fetch calendar events: ${response.status} - ${errorData.error}`)
       }
       
       const eventsData = await response.json()
       
       // Apply filter if needed
-      const filteredEvents = filter === "ALL" 
-        ? eventsData 
-        : eventsData.filter((event: CalendarEvent) => 
-            event.extendedProps.priority === filter || 
-            event.extendedProps.status === filter
-          )
+      let filteredEvents = eventsData
       
+      if (filter !== "ALL") {
+        filteredEvents = eventsData.filter((event: CalendarEvent) => 
+          event.extendedProps.priority === filter || 
+          event.extendedProps.status === filter
+        )
+      }
+      
+      console.log(`Setting ${filteredEvents.length} calendar events`)
       setEvents(filteredEvents)
+      setDebugInfo({
+        totalEvents: eventsData.length,
+        filteredEvents: filteredEvents.length,
+        filter,
+        selectedOrganization,
+        dateRange: { start: startDate, end: endDate }
+      })
     } catch (error) {
       console.error("Error fetching calendar events:", error)
-      setError("Failed to load calendar events. Please try again.")
+      setError(error instanceof Error ? error.message : "Failed to load calendar events. Please try again.")
     } finally {
       setLoading(false)
     }
@@ -130,6 +188,7 @@ export default function CalendarPage() {
 
   const handleEventClick = (clickInfo: any) => {
     const event = clickInfo.event
+    console.log("Event clicked:", event.extendedProps)
     setSelectedTask({
       id: event.id,
       title: event.title,
@@ -137,16 +196,25 @@ export default function CalendarPage() {
       status: event.extendedProps.status,
       priority: event.extendedProps.priority,
       dueDate: event.start,
+      createdAt: event.extendedProps.hasDueDate ? event.start : new Date().toISOString(),
       project: event.extendedProps.projectId ? {
         id: event.extendedProps.projectId,
         name: event.extendedProps.projectName,
-        key: event.extendedProps.projectKey
+        key: event.extendedProps.projectKey,
+        organizationId: event.extendedProps.organizationId
       } : undefined,
-      assignee: event.extendedProps.assigneeEmail ? {
+      assignees: event.extendedProps.assigneeEmail ? [{
+        user: {
+          id: "",
+          name: event.extendedProps.assigneeName,
+          email: event.extendedProps.assigneeEmail
+        }
+      }] : [],
+      creator: {
         id: "",
-        name: event.extendedProps.assigneeName,
-        email: event.extendedProps.assigneeEmail
-      } : undefined
+        name: event.extendedProps.creatorName,
+        email: event.extendedProps.creatorEmail
+      }
     })
   }
 
@@ -235,24 +303,43 @@ export default function CalendarPage() {
                   </div>
                 ) : (
                   <div className="h-[600px]">
-                    <FullCalendar
-                      plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-                      initialView="dayGridMonth"
-                      headerToolbar={{
-                        left: "",
-                        center: "",
-                        right: ""
-                      }}
-                      events={events}
-                      eventClick={handleEventClick}
-                      height="100%"
-                      eventDisplay="block"
-                      eventTimeFormat={{
-                        hour: "numeric",
-                        minute: "2-digit",
-                        meridiem: "short"
-                      }}
-                    />
+                    {events.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                        <CalendarDays className="h-12 w-12 text-muted-foreground mb-4" />
+                        <h3 className="text-lg font-medium">No tasks found</h3>
+                        <p className="text-muted-foreground mb-4 max-w-md">
+                          {selectedOrganization === "ALL" 
+                            ? "No tasks found for the selected time period. Try creating a new task or adjusting your filters."
+                            : "No tasks found for this organization. Try creating a new task or selecting a different organization."
+                          }
+                        </p>
+                        <Button asChild>
+                          <Link href="/tasks/create">
+                            <Plus className="mr-2 h-4 w-4" />
+                            Create Task
+                          </Link>
+                        </Button>
+                      </div>
+                    ) : (
+                      <FullCalendar
+                        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                        initialView="dayGridMonth"
+                        headerToolbar={{
+                          left: "",
+                          center: "",
+                          right: ""
+                        }}
+                        events={events}
+                        eventClick={handleEventClick}
+                        height="100%"
+                        eventDisplay="block"
+                        eventTimeFormat={{
+                          hour: "numeric",
+                          minute: "2-digit",
+                          meridiem: "short"
+                        }}
+                      />
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -268,6 +355,25 @@ export default function CalendarPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {organizations.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium mb-2">Organization</h3>
+                    <Select value={selectedOrganization} onValueChange={setSelectedOrganization}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select organization" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All Organizations</SelectItem>
+                        {organizations.map((org) => (
+                          <SelectItem key={org.id} value={org.id}>
+                            {org.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                
                 <div>
                   <h3 className="text-sm font-medium mb-2">Priority</h3>
                   <div className="flex flex-wrap gap-2">
@@ -340,6 +446,13 @@ export default function CalendarPage() {
                     >
                       Done
                     </Button>
+                    <Button 
+                      variant={filter === "CLOSED" ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => setFilter("CLOSED")}
+                    >
+                      Closed
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -367,12 +480,26 @@ export default function CalendarPage() {
                     <Badge className={getStatusColor(selectedTask.status)}>
                       {selectedTask.status.replace('_', ' ')}
                     </Badge>
+                    {!selectedTask.dueDate && (
+                      <Badge variant="outline">
+                        No due date
+                      </Badge>
+                    )}
                   </div>
                   
-                  <div className="flex items-center gap-2 text-sm">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span>Due: {formatDate(selectedTask.dueDate)}</span>
-                  </div>
+                  {selectedTask.dueDate && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span>Due: {formatDate(selectedTask.dueDate)}</span>
+                    </div>
+                  )}
+                  
+                  {!selectedTask.dueDate && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                      <span>Created: {formatDate(selectedTask.createdAt)}</span>
+                    </div>
+                  )}
                   
                   {selectedTask.project && (
                     <div className="text-sm">
@@ -383,22 +510,41 @@ export default function CalendarPage() {
                     </div>
                   )}
                   
-                  {selectedTask.assignee && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Assignee:</span>
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-6 w-6">
-                          <AvatarImage src={selectedTask.assignee.avatar || ""} />
-                          <AvatarFallback className="text-xs">
-                            {selectedTask.assignee.name?.charAt(0) || selectedTask.assignee.email.charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm font-medium">
-                          {selectedTask.assignee.name || selectedTask.assignee.email}
-                        </span>
+                  {selectedTask.assignees && selectedTask.assignees.length > 0 && (
+                    <div className="space-y-2">
+                      <span className="text-sm text-muted-foreground">Assignees:</span>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedTask.assignees.map((assignee, index) => (
+                          <div key={index} className="flex items-center gap-2">
+                            <Avatar className="h-6 w-6">
+                              <AvatarImage src={assignee.user.avatar || ""} />
+                              <AvatarFallback className="text-xs">
+                                {assignee.user.name?.charAt(0) || assignee.user.email.charAt(0)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="text-sm font-medium">
+                              {assignee.user.name || assignee.user.email}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
+                  
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">Creator:</span>
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-6 w-6">
+                        <AvatarImage src={selectedTask.creator.avatar || ""} />
+                        <AvatarFallback className="text-xs">
+                          {selectedTask.creator.name?.charAt(0) || selectedTask.creator.email.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="font-medium">
+                        {selectedTask.creator.name || selectedTask.creator.email}
+                      </span>
+                    </div>
+                  </div>
                   
                   <div className="pt-2">
                     <Button asChild className="w-full">
@@ -410,6 +556,34 @@ export default function CalendarPage() {
                 </CardContent>
               </Card>
             )}
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5" />
+                  Calendar Info
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                  <span>Urgent Priority</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                  <span>High Priority</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                  <span>Medium Priority</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
+                  <span>Low Priority</span>
+                </div>
+              </CardContent>
+            </Card>
+            
           </div>
         </div>
       </div>

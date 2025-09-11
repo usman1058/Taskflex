@@ -13,8 +13,10 @@ export async function GET(
         if (!session || !session.user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
+        
         // Unwrap params Promise
         const { id } = await params
+        
         const { searchParams } = new URL(request.url)
         const page = parseInt(searchParams.get("page") || "1")
         const limit = parseInt(searchParams.get("limit") || "10")
@@ -22,21 +24,24 @@ export async function GET(
         const priority = searchParams.get("priority")
         const search = searchParams.get("search")
         const skip = (page - 1) * limit
+        
         // Check if user has access to this project
         const project = await db.project.findUnique({
             where: { id },
             include: {
-                members: true, // Include all members
+                members: true,
                 team: {
                     include: {
-                        members: true // Include all team memberships
+                        members: true
                     }
                 }
             }
         })
+        
         if (!project) {
             return NextResponse.json({ error: "Project not found" }, { status: 404 })
         }
+        
         // Check if user is a member of the project or team
         const isProjectMember = project.members.some(member => member.id === session.user.id)
         const isTeamMember = project.team?.members.some(member => member.userId === session.user.id)
@@ -44,9 +49,11 @@ export async function GET(
             isTeamMember ||
             session.user.role === "ADMIN" ||
             session.user.role === "MANAGER"
+        
         if (!hasAccess) {
             return NextResponse.json({ error: "Access denied" }, { status: 403 })
         }
+        
         // Build where clause
         const where: any = { projectId: id }
         if (status && status !== "all") {
@@ -61,12 +68,17 @@ export async function GET(
                 { description: { contains: search, mode: "insensitive" } }
             ]
         }
+        
         const [tasks, total] = await Promise.all([
             db.task.findMany({
                 where,
                 include: {
-                    assignee: {
-                        select: { id: true, name: true, email: true, avatar: true }
+                    assignees: {
+                        include: {
+                            user: {
+                                select: { id: true, name: true, email: true, avatar: true }
+                            }
+                        }
                     },
                     creator: {
                         select: { id: true, name: true, email: true, avatar: true }
@@ -83,6 +95,7 @@ export async function GET(
             }),
             db.task.count({ where })
         ])
+        
         return NextResponse.json({
             tasks,
             pagination: {
@@ -110,8 +123,10 @@ export async function POST(
         if (!session || !session.user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
+        
         // Unwrap params Promise
         const { id } = await params
+        
         const body = await request.json()
         const {
             title,
@@ -120,29 +135,34 @@ export async function POST(
             status = "OPEN",
             priority = "MEDIUM",
             dueDate,
-            assigneeId,
+            assigneeIds = [],
             tags = []
         } = body
+        
         if (!title) {
             return NextResponse.json(
                 { error: "Title is required" },
                 { status: 400 }
             )
         }
+        
+        // Check if user has access to this project
         const project = await db.project.findUnique({
             where: { id },
             include: {
-                members: true, // Include all members
+                members: true,
                 team: {
                     include: {
-                        members: true // Include all team memberships
+                        members: true
                     }
                 }
             }
         })
+        
         if (!project) {
             return NextResponse.json({ error: "Project not found" }, { status: 404 })
         }
+        
         // Check if user is a member of the project or team
         const isProjectMember = project.members.some(member => member.id === session.user.id)
         const isTeamMember = project.team?.members.some(member => member.userId === session.user.id)
@@ -150,11 +170,11 @@ export async function POST(
             isTeamMember ||
             session.user.role === "ADMIN" ||
             session.user.role === "MANAGER"
+        
         if (!hasAccess) {
             return NextResponse.json({ error: "Access denied" }, { status: 403 })
         }
-        // Handle special values
-        const finalAssigneeId = assigneeId === "unassigned" || assigneeId === "" ? null : assigneeId
+        
         // Create the task
         const task = await db.task.create({
             data: {
@@ -164,7 +184,6 @@ export async function POST(
                 status,
                 priority,
                 dueDate: dueDate ? new Date(dueDate) : null,
-                assigneeId: finalAssigneeId,
                 projectId: id,
                 creatorId: session.user.id,
                 taskTags: {
@@ -179,8 +198,12 @@ export async function POST(
                 }
             },
             include: {
-                assignee: {
-                    select: { id: true, name: true, email: true, avatar: true }
+                assignees: {
+                    include: {
+                        user: {
+                            select: { id: true, name: true, email: true, avatar: true }
+                        }
+                    }
                 },
                 creator: {
                     select: { id: true, name: true, email: true, avatar: true }
@@ -192,17 +215,41 @@ export async function POST(
                 }
             }
         })
-        // Create notification if task is assigned to someone else
-        if (finalAssigneeId && finalAssigneeId !== session.user.id) {
-            await db.notification.create({
+        
+        // Add assignees to the task
+        if (assigneeIds.length > 0) {
+            await db.taskAssignee.createMany({
+                data: assigneeIds.map((userId: string) => ({
+                    taskId: task.id,
+                    userId
+                }))
+            })
+        } else {
+            // If no assignees are specified, assign the task to the creator
+            await db.taskAssignee.create({
                 data: {
-                    title: "New Task Assigned",
-                    message: `You have been assigned to "${title}"`,
-                    type: "TASK_ASSIGNED",
-                    userId: finalAssigneeId
+                    taskId: task.id,
+                    userId: session.user.id
                 }
             })
         }
+        
+        // Create notifications for assignees
+        if (assigneeIds.length > 0) {
+            for (const userId of assigneeIds) {
+                if (userId !== session.user.id) {
+                    await db.notification.create({
+                        data: {
+                            title: "New Task Assigned",
+                            message: `You have been assigned to "${title}"`,
+                            type: "TASK_ASSIGNED",
+                            userId
+                        }
+                    })
+                }
+            }
+        }
+        
         return NextResponse.json(task, { status: 201 })
     } catch (error) {
         console.error("Error creating task:", error)

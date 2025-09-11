@@ -29,9 +29,11 @@ import {
   UserPlus,
   Mail,
   Check,
-  Loader2
+  Loader2,
+  Activity
 } from "lucide-react"
 import Link from "next/link"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface ProjectMember {
   id: string
@@ -66,6 +68,17 @@ interface Project {
   }
 }
 
+interface ActivityItem {
+  id: string
+  action: string
+  description: string
+  timestamp: string
+  user: {
+    name: string
+    avatar?: string
+  }
+}
+
 export default function ProjectDetailPage() {
   const { data: session } = useSession()
   const router = useRouter()
@@ -89,11 +102,13 @@ export default function ProjectDetailPage() {
     memberIds: [] as string[]
   })
   const [allUsers, setAllUsers] = useState<ProjectMember[]>([])
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([])
 
   useEffect(() => {
     if (id) {
       fetchProject()
       fetchUsers()
+      fetchActivity()
     }
   }, [id])
 
@@ -107,6 +122,8 @@ export default function ProjectDetailPage() {
       if (!response.ok) {
         if (response.status === 404) {
           setError("Project not found")
+        } else if (response.status === 403) {
+          setError("Access denied")
         } else {
           const errorData = await response.json()
           throw new Error(errorData.error || `Failed to fetch project: ${response.status}`)
@@ -121,7 +138,7 @@ export default function ProjectDetailPage() {
         description: projectData.description || "",
         key: projectData.key,
         status: projectData.status,
-        memberIds: projectData.members.map((m: ProjectMember) => m.id)
+        memberIds: projectData.members ? projectData.members.map((m: ProjectMember) => m.id) : []
       })
     } catch (error) {
       console.error("Error fetching project:", error)
@@ -143,6 +160,38 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const fetchActivity = async () => {
+    try {
+      // Mock activity data for now
+      // In a real implementation, you would fetch this from an API
+      const mockActivity: ActivityItem[] = [
+        {
+          id: "1",
+          action: "created",
+          description: "Project created",
+          timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+          user: {
+            name: "You",
+            avatar: session?.user?.avatar
+          }
+        },
+        {
+          id: "2",
+          action: "updated",
+          description: "Project description updated",
+          timestamp: new Date(Date.now() - 43200000).toISOString(), // 12 hours ago
+          user: {
+            name: "You",
+            avatar: session?.user?.avatar
+          }
+        }
+      ]
+      setRecentActivity(mockActivity)
+    } catch (error) {
+      console.error("Error fetching activity:", error)
+    }
+  }
+
   const handleEdit = () => {
     setIsEditing(true)
   }
@@ -155,7 +204,7 @@ export default function ProjectDetailPage() {
         description: project.description || "",
         key: project.key,
         status: project.status,
-        memberIds: project.members.map(m => m.id)
+        memberIds: project.members ? project.members.map(m => m.id) : []
       })
     }
   }
@@ -178,6 +227,19 @@ export default function ProjectDetailPage() {
       const updatedProject = await response.json()
       setProject(updatedProject)
       setIsEditing(false)
+      
+      // Add activity item
+      const newActivity: ActivityItem = {
+        id: Date.now().toString(),
+        action: "updated",
+        description: "Project details updated",
+        timestamp: new Date().toISOString(),
+        user: {
+          name: "You",
+          avatar: session?.user?.avatar
+        }
+      }
+      setRecentActivity(prev => [newActivity, ...prev])
     } catch (error) {
       console.error("Error updating project:", error)
       setError(error instanceof Error ? error.message : "Failed to update project")
@@ -231,6 +293,19 @@ export default function ProjectDetailPage() {
       setInviteSuccess(true)
       setInviteEmail("")
 
+      // Add activity item
+      const newActivity: ActivityItem = {
+        id: Date.now().toString(),
+        action: "invited",
+        description: `New member invited: ${inviteEmail}`,
+        timestamp: new Date().toISOString(),
+        user: {
+          name: "You",
+          avatar: session?.user?.avatar
+        }
+      }
+      setRecentActivity(prev => [newActivity, ...prev])
+
       // Close dialog after success
       setTimeout(() => {
         setInviteDialogOpen(false)
@@ -276,7 +351,20 @@ export default function ProjectDetailPage() {
     return new Date(dateString).toLocaleDateString()
   }
 
-  const isAdmin = session?.user?.role === "ADMIN"
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+    
+    if (diffInSeconds < 60) return "just now"
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`
+    if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)} days ago`
+    return formatDate(dateString)
+  }
+
+  const isAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "MANAGER"
+  const isMember = project && project.members ? project.members.some(member => member.id === session?.user?.id) : false
 
   if (loading) {
     return (
@@ -318,10 +406,15 @@ export default function ProjectDetailPage() {
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
-            <h1 className="text-3xl font-bold tracking-tight">Project Details</h1>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
+              <p className="text-muted-foreground">
+                Key: {project.key} • Created {formatDate(project.createdAt)}
+              </p>
+            </div>
           </div>
 
-          {isAdmin && (
+          {(isAdmin || isMember) && (
             <div className="flex gap-2">
               {isEditing ? (
                 <>
@@ -336,205 +429,220 @@ export default function ProjectDetailPage() {
                 </>
               ) : (
                 <>
-                  <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline">
-                        <UserPlus className="mr-2 h-4 w-4" />
-                        Invite Member
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Invite Member</DialogTitle>
-                        <DialogDescription>
-                          Enter the email address of the user you want to invite to this project.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="flex items-center space-x-2">
-                        <div className="grid flex-1 gap-2">
-                          <Label htmlFor="email">Email</Label>
-                          <Input
-                            id="email"
-                            type="email"
-                            placeholder="user@example.com"
-                            value={inviteEmail}
-                            onChange={(e) => setInviteEmail(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button onClick={handleInviteMember} disabled={isInviting || !inviteEmail}>
-                          {isInviting ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Inviting...
-                            </>
-                          ) : (
-                            <>
-                              <Mail className="mr-2 h-4 w-4" />
-                              Send Invitation
-                            </>
-                          )}
+                  {isAdmin && (
+                    <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline">
+                          <UserPlus className="mr-2 h-4 w-4" />
+                          Invite Member
                         </Button>
-                      </DialogFooter>
-                      {inviteSuccess && (
-                        <div className="flex items-center justify-center p-4 text-green-600">
-                          <Check className="mr-2 h-4 w-4" />
-                          Invitation sent successfully!
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Invite Member</DialogTitle>
+                          <DialogDescription>
+                            Enter the email address of the user you want to invite to this project.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex items-center space-x-2">
+                          <div className="grid flex-1 gap-2">
+                            <Label htmlFor="email">Email</Label>
+                            <Input
+                              id="email"
+                              type="email"
+                              placeholder="user@example.com"
+                              value={inviteEmail}
+                              onChange={(e) => setInviteEmail(e.target.value)}
+                            />
+                          </div>
                         </div>
+                        <DialogFooter>
+                          <Button onClick={handleInviteMember} disabled={isInviting || !inviteEmail}>
+                            {isInviting ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Inviting...
+                              </>
+                            ) : (
+                              <>
+                                <Mail className="mr-2 h-4 w-4" />
+                                Send Invitation
+                              </>
+                            )}
+                          </Button>
+                        </DialogFooter>
+                        {inviteSuccess && (
+                          <div className="flex items-center justify-center p-4 text-green-600">
+                            <Check className="mr-2 h-4 w-4" />
+                            Invitation sent successfully!
+                          </div>
+                        )}
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                  
+                  {isAdmin && (
+                    <Button variant="outline" onClick={handleEdit}>
+                      <Edit className="mr-2 h-4 w-4" />
+                      Edit
+                    </Button>
+                  )}
+                  
+                  {isAdmin && (
+                    <Button
+                      variant="destructive"
+                      onClick={handleDelete}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
+                        </>
                       )}
-                    </DialogContent>
-                  </Dialog>
-
-                  <Button variant="outline" onClick={handleEdit}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={handleDelete}
-                    disabled={isDeleting}
-                  >
-                    {isDeleting ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </>
-                    )}
-                  </Button>
+                    </Button>
+                  )}
                 </>
               )}
             </div>
           )}
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="md:col-span-2 space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FolderOpen className="h-5 w-5" />
-                  Project Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {isEditing ? (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Project Name</label>
-                      <Input
-                        name="name"
-                        value={formData.name}
-                        onChange={handleInputChange}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">Project Key</label>
-                      <Input
-                        name="key"
-                        value={formData.key}
-                        onChange={handleInputChange}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">Description</label>
-                      <Textarea
-                        name="description"
-                        value={formData.description}
-                        onChange={handleInputChange}
-                        rows={3}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">Status</label>
-                      <Select value={formData.status} onValueChange={handleStatusChange}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ACTIVE">Active</SelectItem>
-                          <SelectItem value="ARCHIVED">Archived</SelectItem>
-                          <SelectItem value="COMPLETED">Completed</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h2 className="text-2xl font-bold">{project.name}</h2>
-                        <p className="text-sm text-muted-foreground">Key: {project.key}</p>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-6">
+            <Tabs defaultValue="overview" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="members">Members</TabsTrigger>
+                <TabsTrigger value="activity">Activity</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="overview" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FolderOpen className="h-5 w-5" />
+                      Project Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {isEditing ? (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-sm font-medium">Project Name</label>
+                          <Input
+                            name="name"
+                            value={formData.name}
+                            onChange={handleInputChange}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium">Project Key</label>
+                          <Input
+                            name="key"
+                            value={formData.key}
+                            onChange={handleInputChange}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium">Description</label>
+                          <Textarea
+                            name="description"
+                            value={formData.description}
+                            onChange={handleInputChange}
+                            rows={3}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium">Status</label>
+                          <Select value={formData.status} onValueChange={handleStatusChange}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="ACTIVE">Active</SelectItem>
+                              <SelectItem value="ARCHIVED">Archived</SelectItem>
+                              <SelectItem value="COMPLETED">Completed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
-                      <Badge className={getStatusColor(project.status)}>
-                        {project.status}
-                      </Badge>
-                    </div>
-                    {project.description && (
-                      <div>
-                        <h3 className="text-sm font-medium mb-1">Description</h3>
-                        <p className="text-muted-foreground">{project.description}</p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h2 className="text-2xl font-bold">{project.name}</h2>
+                            <p className="text-sm text-muted-foreground">Key: {project.key}</p>
+                          </div>
+                          <Badge className={getStatusColor(project.status)}>
+                            {project.status}
+                          </Badge>
+                        </div>
+                        {project.description && (
+                          <div>
+                            <h3 className="text-sm font-medium mb-1">Description</h3>
+                            <p className="text-muted-foreground whitespace-pre-line">{project.description}</p>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <h3 className="text-sm font-medium mb-1">Created</h3>
+                            <p className="text-muted-foreground">{formatDate(project.createdAt)}</p>
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-medium mb-1">Last Updated</h3>
+                            <p className="text-muted-foreground">{formatDate(project.updatedAt)}</p>
+                          </div>
+                        </div>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <h3 className="text-sm font-medium mb-1">Created</h3>
-                        <p className="text-muted-foreground">{formatDate(project.createdAt)}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium mb-1">Last Updated</h3>
-                        <p className="text-muted-foreground">{formatDate(project.updatedAt)}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5" />
-                  Project Members
-                </CardTitle>
-                <CardDescription>
-                  People who have access to this project
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {isEditing ? (
-                  <div className="space-y-3">
-                    {allUsers.map(user => (
-                      <div key={user.id} className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id={`user-${user.id}`}
-                          checked={formData.memberIds.includes(user.id)}
-                          onChange={(e) => handleMemberChange(user.id, e.target.checked)}
-                          className="rounded"
-                        />
-                        <label htmlFor={`user-${user.id}`} className="flex items-center space-x-2 cursor-pointer">
-                          <Avatar className="h-6 w-6">
-                            <AvatarImage src={user.avatar} />
-                            <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          <span>{user.name}</span>
-                        </label>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {project.members.map(member => (
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="members" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      Project Members
+                    </CardTitle>
+                    <CardDescription>
+                      People who have access to this project
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {isEditing ? (
                       <div className="space-y-3">
-                        {project.members.map(member => (
+                        {allUsers.map(user => (
+                          <div key={user.id} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              id={`user-${user.id}`}
+                              checked={formData.memberIds.includes(user.id)}
+                              onChange={(e) => handleMemberChange(user.id, e.target.checked)}
+                              className="rounded"
+                            />
+                            <label htmlFor={`user-${user.id}`} className="flex items-center space-x-2 cursor-pointer">
+                              <Avatar className="h-6 w-6">
+                                <AvatarImage src={user.avatar} />
+                                <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                              </Avatar>
+                              <span>{user.name}</span>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {project.members && project.members.map(member => (
                           <div key={member.id} className="flex items-center justify-between">
                             <div className="flex items-center space-x-3">
                               <Avatar>
@@ -554,11 +662,49 @@ export default function ProjectDetailPage() {
                           </div>
                         ))}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="activity" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
+                      Recent Activity
+                    </CardTitle>
+                    <CardDescription>
+                      Recent actions on this project
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {recentActivity.length > 0 ? (
+                        recentActivity.map(activity => (
+                          <div key={activity.id} className="flex items-start space-x-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={activity.user.avatar} />
+                              <AvatarFallback>{activity.user.name.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                              <p className="text-sm">
+                                <span className="font-medium">{activity.user.name}</span> {activity.action} {activity.description}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatRelativeTime(activity.timestamp)}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-center text-muted-foreground py-4">No recent activity</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           </div>
 
           <div className="space-y-6">

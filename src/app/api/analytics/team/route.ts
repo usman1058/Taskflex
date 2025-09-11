@@ -1,4 +1,3 @@
-// app/api/analytics/team/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
@@ -22,6 +21,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
+    const { searchParams } = new URL(request.url)
+    const organizationId = searchParams.get("organizationId")
+    
+    // Build the base where clause
+    const baseWhere: any = {}
+    
+    // Add organization filter if provided
+    if (organizationId && organizationId !== "ALL") {
+      baseWhere.project = {
+        organizationId: organizationId
+      }
+    }
+    
     // Get team member productivity
     const teamMembers = await db.user.findMany({
       where: {
@@ -40,25 +52,42 @@ export async function GET(request: NextRequest) {
     const teamProductivity = await Promise.all(
       teamMembers.map(async (member) => {
         const assignedTasks = await db.task.count({
-          where: { assigneeId: member.id }
+          where: {
+            assignees: {
+              some: {
+                userId: member.id
+              }
+            },
+            ...baseWhere
+          }
         })
         
         const completedTasks = await db.task.count({
           where: {
-            assigneeId: member.id,
-            status: "DONE"
+            assignees: {
+              some: {
+                userId: member.id
+              }
+            },
+            status: "DONE",
+            ...baseWhere
           }
         })
         
         const overdueTasks = await db.task.count({
           where: {
-            assigneeId: member.id,
+            assignees: {
+              some: {
+                userId: member.id
+              }
+            },
             dueDate: {
               lt: new Date()
             },
             status: {
               not: "DONE"
-            }
+            },
+            ...baseWhere
           }
         })
         
@@ -80,63 +109,122 @@ export async function GET(request: NextRequest) {
     // Get project status distribution
     const projectStatus = await db.project.groupBy({
       by: ["status"],
+      where: baseWhere,
       _count: {
         id: true
       }
     })
     
-    // Get task distribution by assignee
-    const tasksByAssignee = await db.task.groupBy({
-      by: ["assigneeId"],
-      where: {
-        assigneeId: {
-          not: null
+    // Get organization status distribution (only if not filtering by a specific organization)
+    let organizationStatus = []
+    if (!organizationId || organizationId === "ALL") {
+      // Since Organization doesn't have a status field, we'll calculate it based on projects
+      const organizations = await db.organization.findMany({
+        include: {
+          projects: {
+            select: {
+              status: true
+            }
+          }
         }
-      },
-      _count: {
-        id: true
-      },
-      orderBy: {
-        _count: {
-          id: "desc"
+      })
+      
+      // Calculate organization status based on projects
+      organizationStatus = organizations.map(org => {
+        const totalProjects = org.projects.length
+        const activeProjects = org.projects.filter(p => p.status === "ACTIVE").length
+        
+        let status = "ACTIVE"
+        if (totalProjects === 0) {
+          status = "INACTIVE"
+        } else if (activeProjects === 0) {
+          status = "INACTIVE"
+        } else if (activeProjects === totalProjects) {
+          status = "ACTIVE"
         }
-      },
-      take: 5
-    })
+        
+        return {
+          status,
+          _count: { id: 1 }
+        }
+      })
+      
+      // Group by status
+      const statusGroups = organizationStatus.reduce((acc, item) => {
+        if (!acc[item.status]) {
+          acc[item.status] = []
+        }
+        acc[item.status].push(item)
+        return acc
+      }, {} as Record<string, typeof organizationStatus>)
+      
+      // Convert to the expected format
+      organizationStatus = Object.entries(statusGroups).map(([status, items]) => ({
+        status,
+        _count: { id: items.length }
+      }))
+    }
     
-    // Get assignee details
-    const assigneeIds = tasksByAssignee.map(t => t.assigneeId).filter(Boolean) as string[]
-    const assignees = await db.user.findMany({
+    // Get task distribution by assignee - manual grouping since we can't use groupBy on relations
+    const tasksByAssigneeData = await db.task.findMany({
       where: {
-        id: {
-          in: assigneeIds
-        }
+        assignees: {
+          some: {
+            userId: {
+              not: null
+            }
+          }
+        },
+        ...baseWhere
       },
-      select: {
-        id: true,
-        name: true,
-        email: true
+      include: {
+        assignees: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        }
       }
     })
     
-    // Map assignee details to the tasksByAssignee result
-    const tasksByAssigneeWithDetails = tasksByAssignee.map(item => {
-      const assignee = assignees.find(a => a.id === item.assigneeId)
-      return {
-        ...item,
-        assignee
-      }
-    })
+    // Group tasks by assignee manually
+    const assigneeGroups = tasksByAssigneeData.reduce((acc, task) => {
+      task.assignees.forEach(assignee => {
+        if (assignee.user) {
+          if (!acc[assignee.user.id]) {
+            acc[assignee.user.id] = []
+          }
+          acc[assignee.user.id].push(task)
+        }
+      })
+      return acc
+    }, {} as Record<string, typeof tasksByAssigneeData>)
+    
+    // Convert to the expected format and sort by task count
+    const tasksByAssignee = Object.entries(assigneeGroups)
+      .map(([assigneeId, tasks]) => ({
+        assigneeId,
+        _count: { id: tasks.length },
+        assignee: tasks[0]?.assignees[0]?.user
+      }))
+      .sort((a, b) => b._count.id - a._count.id)
+      .slice(0, 5)
     
     return NextResponse.json({
       teamProductivity,
       projectStatus,
-      tasksByAssignee: tasksByAssigneeWithDetails
+      organizationStatus,
+      tasksByAssignee
     })
   } catch (error) {
     console.error("Error fetching team analytics:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: error instanceof Error ? error.message : "Internal server error" },
       { status: 500 }
     )
   }

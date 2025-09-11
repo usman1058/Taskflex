@@ -1,4 +1,3 @@
-// app/analytics/page.tsx
 "use client"
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
@@ -9,11 +8,11 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { 
-  BarChart3, 
-  PieChart, 
-  TrendingUp, 
-  Users, 
+import {
+  BarChart3,
+  PieChart,
+  TrendingUp,
+  Users,
   Calendar,
   CheckCircle,
   Clock,
@@ -23,7 +22,9 @@ import {
   FileText,
   Activity,
   Target,
-  UserCheck
+  UserCheck,
+  Building,
+  Filter
 } from "lucide-react"
 import {
   BarChart,
@@ -44,6 +45,11 @@ import {
 } from "recharts"
 import { format } from "date-fns"
 
+interface Organization {
+  id: string
+  name: string
+}
+
 interface TaskAnalytics {
   tasksByStatus: { status: string; _count: { id: number } }[]
   tasksByPriority: { priority: string; _count: { id: number } }[]
@@ -54,6 +60,11 @@ interface TaskAnalytics {
   }[]
   tasksByMonth: { month: string; completedTasks: number }[]
   tasksByType: { type: string; _count: { id: number } }[]
+  tasksByOrganization: {
+    organizationId: string;
+    _count: { id: number };
+    organization?: { id: string; name: string }
+  }[]
 }
 
 interface ProductivityAnalytics {
@@ -86,10 +97,13 @@ interface TeamAnalytics {
     _count: { id: number };
     assignee?: { id: string; name: string | null; email: string }
   }[]
+  organizationStatus: { status: string; _count: { id: number } }[]
 }
 
 export default function AnalyticsPage() {
   const { data: session } = useSession()
+  const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [selectedOrganization, setSelectedOrganization] = useState("ALL")
   const [taskAnalytics, setTaskAnalytics] = useState<TaskAnalytics | null>(null)
   const [productivityAnalytics, setProductivityAnalytics] = useState<ProductivityAnalytics | null>(null)
   const [teamAnalytics, setTeamAnalytics] = useState<TeamAnalytics | null>(null)
@@ -102,10 +116,14 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     fetchUser()
+    fetchOrganizations()
+  }, [])
+
+  useEffect(() => {
     fetchTaskAnalytics()
     fetchProductivityAnalytics()
     fetchTeamAnalytics()
-  }, [timeRange])
+  }, [timeRange, selectedOrganization])
 
   const fetchUser = async () => {
     try {
@@ -119,47 +137,104 @@ export default function AnalyticsPage() {
     }
   }
 
+  const fetchOrganizations = async () => {
+    try {
+      const response = await fetch("/api/organizations")
+      if (response.ok) {
+        const organizationsData = await response.json()
+        setOrganizations(organizationsData)
+      }
+    } catch (error) {
+      console.error("Error fetching organizations:", error)
+    }
+  }
+
+
   const fetchTaskAnalytics = async () => {
     try {
-      const response = await fetch(`/api/analytics/tasks?months=${timeRange}`)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch task analytics: ${response.status}`)
+      setLoading(true)
+      setError(null)
+
+      const params = new URLSearchParams({
+        months: timeRange
+      })
+
+      // Add organization filter if selected
+      if (selectedOrganization !== "ALL") {
+        params.append("organizationId", selectedOrganization)
       }
+
+      const response = await fetch(`/api/analytics/tasks?${params}`)
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || `Failed to fetch task analytics: ${response.status}`)
+      }
+
       const data = await response.json()
       setTaskAnalytics(data)
     } catch (error) {
       console.error("Error fetching task analytics:", error)
-      setError("Failed to load task analytics. Please try again.")
+      setError(error instanceof Error ? error.message : "Failed to load task analytics. Please try again.")
+    } finally {
+      setLoading(false)
     }
   }
 
   const fetchProductivityAnalytics = async () => {
     try {
-      const response = await fetch(`/api/analytics/productivity?weeks=${timeRange}`)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch productivity analytics: ${response.status}`)
+      const params = new URLSearchParams({
+        weeks: timeRange
+      })
+
+      // Add organization filter if selected
+      if (selectedOrganization !== "ALL") {
+        params.append("organizationId", selectedOrganization)
       }
+
+      const response = await fetch(`/api/analytics/productivity?${params}`)
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || `Failed to fetch productivity analytics: ${response.status}`)
+      }
+
       const data = await response.json()
       setProductivityAnalytics(data)
     } catch (error) {
       console.error("Error fetching productivity analytics:", error)
-      setError("Failed to load productivity analytics. Please try again.")
+      setError(error instanceof Error ? error.message : "Failed to load productivity analytics. Please try again.")
+    } finally {
+      setLoading(false)
     }
   }
 
   const fetchTeamAnalytics = async () => {
     try {
-      const response = await fetch("/api/analytics/team")
+      const params = new URLSearchParams()
+
+      // Add organization filter if selected
+      if (selectedOrganization !== "ALL") {
+        params.append("organizationId", selectedOrganization)
+      }
+
+      const response = await fetch(`/api/analytics/team?${params}`)
+
       if (!response.ok) {
         // If unauthorized, just ignore team analytics
-        if (response.status === 401) return
-        throw new Error(`Failed to fetch team analytics: ${response.status}`)
+        if (response.status === 401) {
+          console.log("User not authorized for team analytics")
+          return
+        }
+        const errorData = await response.json()
+        throw new Error(errorData.error || `Failed to fetch team analytics: ${response.status}`)
       }
+
       const data = await response.json()
       setTeamAnalytics(data)
     } catch (error) {
       console.error("Error fetching team analytics:", error)
-      setError("Failed to load team analytics. Please try again.")
+      setError(error instanceof Error ? error.message : "Failed to load team analytics. Please try again.")
     } finally {
       setLoading(false)
     }
@@ -170,11 +245,10 @@ export default function AnalyticsPage() {
     try {
       let csvContent = ""
       let filename = ""
-      
+
       if (activeTab === "tasks" && taskAnalytics) {
-        // Export tasks analytics
         filename = `tasks-analytics-${format(new Date(), "yyyy-MM-dd")}.csv`
-        
+
         // Tasks by Status
         csvContent += "Tasks by Status\n"
         csvContent += "Status,Count\n"
@@ -182,7 +256,7 @@ export default function AnalyticsPage() {
           csvContent += `${item.status},${item._count.id}\n`
         })
         csvContent += "\n"
-        
+
         // Tasks by Priority
         csvContent += "Tasks by Priority\n"
         csvContent += "Priority,Count\n"
@@ -190,7 +264,7 @@ export default function AnalyticsPage() {
           csvContent += `${item.priority},${item._count.id}\n`
         })
         csvContent += "\n"
-        
+
         // Tasks by Project
         csvContent += "Tasks by Project\n"
         csvContent += "Project Name,Project Key,Count\n"
@@ -198,7 +272,17 @@ export default function AnalyticsPage() {
           csvContent += `"${item.project?.name || "Unknown"}","${item.project?.key || ""}",${item._count.id}\n`
         })
         csvContent += "\n"
-        
+
+        // Tasks by Organization
+        if (taskAnalytics.tasksByOrganization) {
+          csvContent += "Tasks by Organization\n"
+          csvContent += "Organization Name,Count\n"
+          taskAnalytics.tasksByOrganization.forEach(item => {
+            csvContent += `"${item.organization?.name || "Unknown"}",${item._count.id}\n`
+          })
+          csvContent += "\n"
+        }
+
         // Tasks by Type
         csvContent += "Tasks by Type\n"
         csvContent += "Type,Count\n"
@@ -206,25 +290,24 @@ export default function AnalyticsPage() {
           csvContent += `${item.type},${item._count.id}\n`
         })
         csvContent += "\n"
-        
+
         // Tasks by Month
         csvContent += "Tasks Completed by Month\n"
         csvContent += "Month,Completed Tasks\n"
         taskAnalytics.tasksByMonth.forEach(item => {
           csvContent += `${item.month},${item.completedTasks}\n`
         })
-      } 
+      }
       else if (activeTab === "productivity" && productivityAnalytics) {
-        // Export productivity analytics
         filename = `productivity-analytics-${format(new Date(), "yyyy-MM-dd")}.csv`
-        
+
         // Summary
         csvContent += "Productivity Summary\n"
         csvContent += `Average Completion Time (days),${productivityAnalytics.avgCompletionTime}\n`
         csvContent += `Current Streak (days),${productivityAnalytics.currentStreak}\n`
         csvContent += `Total Completed Tasks,${productivityAnalytics.totalCompleted}\n`
         csvContent += "\n"
-        
+
         // Weekly Productivity
         csvContent += "Weekly Productivity\n"
         csvContent += "Week,Week Start,Week End,Total Completed\n"
@@ -232,7 +315,7 @@ export default function AnalyticsPage() {
           csvContent += `${week.week},${week.weekStart},${week.weekEnd},${week.weekTotal}\n`
         })
         csvContent += "\n"
-        
+
         // Daily Productivity (for the most recent week)
         if (productivityAnalytics.weeklyProductivity.length > 0) {
           csvContent += "Daily Productivity\n"
@@ -241,11 +324,10 @@ export default function AnalyticsPage() {
             csvContent += `${day.day},${day.date},${day.completedTasks}\n`
           })
         }
-      } 
+      }
       else if (activeTab === "team" && teamAnalytics) {
-        // Export team analytics
         filename = `team-analytics-${format(new Date(), "yyyy-MM-dd")}.csv`
-        
+
         // Team Productivity
         csvContent += "Team Productivity\n"
         csvContent += "Name,Email,Assigned Tasks,Completed Tasks,Overdue Tasks,Completion Rate\n"
@@ -253,7 +335,7 @@ export default function AnalyticsPage() {
           csvContent += `"${member.name || ""}","${member.email}",${member.assignedTasks},${member.completedTasks},${member.overdueTasks},${member.completionRate}%\n`
         })
         csvContent += "\n"
-        
+
         // Project Status
         csvContent += "Project Status\n"
         csvContent += "Status,Count\n"
@@ -261,7 +343,17 @@ export default function AnalyticsPage() {
           csvContent += `${item.status},${item._count.id}\n`
         })
         csvContent += "\n"
-        
+
+        // Organization Status
+        if (teamAnalytics.organizationStatus) {
+          csvContent += "Organization Status\n"
+          csvContent += "Status,Count\n"
+          teamAnalytics.organizationStatus.forEach(item => {
+            csvContent += `${item.status},${item._count.id}\n`
+          })
+          csvContent += "\n"
+        }
+
         // Tasks by Assignee
         csvContent += "Tasks by Assignee\n"
         csvContent += "Assignee,Task Count\n"
@@ -269,10 +361,10 @@ export default function AnalyticsPage() {
           csvContent += `"${item.assignee?.name || item.assignee?.email || "Unknown"}",${item._count.id}\n`
         })
       }
-      
+
       // Create a Blob with the CSV content
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-      
+
       // Create a download link
       const url = URL.createObjectURL(blob)
       const link = document.createElement("a")
@@ -332,6 +424,14 @@ export default function AnalyticsPage() {
     }
   }
 
+  const getOrganizationStatusColor = (status: string) => {
+    switch (status) {
+      case "ACTIVE": return "#10b981"   // emerald-500
+      case "INACTIVE": return "#94a3b8" // slate-500
+      default: return "#94a3b8"         // slate-500
+    }
+  }
+
   const formatChartData = (data: any[], key: string, valueKey: string) => {
     return data.map(item => ({
       name: item[key],
@@ -373,6 +473,21 @@ export default function AnalyticsPage() {
             </p>
           </div>
           <div className="flex gap-2">
+            {organizations.length > 0 && (
+              <Select value={selectedOrganization} onValueChange={setSelectedOrganization}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Select organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Organizations</SelectItem>
+                  {organizations.map((org) => (
+                    <SelectItem key={org.id} value={org.id}>
+                      {org.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Select value={timeRange} onValueChange={setTimeRange}>
               <SelectTrigger className="w-40">
                 <SelectValue placeholder="Select time range" />
@@ -383,8 +498,8 @@ export default function AnalyticsPage() {
                 <SelectItem value="12">Last year</SelectItem>
               </SelectContent>
             </Select>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={exportToCSV}
               disabled={exporting}
               className="flex items-center gap-2"
@@ -403,7 +518,7 @@ export default function AnalyticsPage() {
             </Button>
           </div>
         </div>
-        
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="tasks" className="flex items-center gap-2">
@@ -421,7 +536,7 @@ export default function AnalyticsPage() {
               </TabsTrigger>
             )}
           </TabsList>
-          
+
           <TabsContent value="tasks" className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card className="shadow-sm border-0 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/50 dark:to-blue-900/20">
@@ -438,7 +553,7 @@ export default function AnalyticsPage() {
                   </p>
                 </CardContent>
               </Card>
-              
+
               <Card className="shadow-sm border-0 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/50 dark:to-green-900/20">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-green-700 dark:text-green-300">Completed Tasks</CardTitle>
@@ -453,7 +568,7 @@ export default function AnalyticsPage() {
                   </p>
                 </CardContent>
               </Card>
-              
+
               <Card className="shadow-sm border-0 bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/50 dark:to-amber-900/20">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-amber-700 dark:text-amber-300">In Progress</CardTitle>
@@ -468,7 +583,7 @@ export default function AnalyticsPage() {
                   </p>
                 </CardContent>
               </Card>
-              
+
               <Card className="shadow-sm border-0 bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950/50 dark:to-red-900/20">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-red-700 dark:text-red-300">Overdue</CardTitle>
@@ -484,7 +599,7 @@ export default function AnalyticsPage() {
                 </CardContent>
               </Card>
             </div>
-            
+
             <div className="grid gap-6 md:grid-cols-2">
               <Card className="shadow-sm">
                 <CardHeader>
@@ -523,7 +638,7 @@ export default function AnalyticsPage() {
                   </div>
                 </CardContent>
               </Card>
-              
+
               <Card className="shadow-sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -562,7 +677,7 @@ export default function AnalyticsPage() {
                 </CardContent>
               </Card>
             </div>
-            
+
             <div className="grid gap-6 md:grid-cols-2">
               <Card className="shadow-sm">
                 <CardHeader>
@@ -596,7 +711,7 @@ export default function AnalyticsPage() {
                   </div>
                 </CardContent>
               </Card>
-              
+
               <Card className="shadow-sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -635,7 +750,43 @@ export default function AnalyticsPage() {
                 </CardContent>
               </Card>
             </div>
-            
+
+            {/* Tasks by Organization Chart */}
+            {selectedOrganization === "ALL" && taskAnalytics?.tasksByOrganization && taskAnalytics.tasksByOrganization.length > 0 && (
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Building className="h-5 w-5" />
+                    Tasks by Organization
+                  </CardTitle>
+                  <CardDescription>
+                    Distribution of tasks across organizations
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={taskAnalytics.tasksByOrganization.map(item => ({
+                          name: item.organization?.name || "Unknown",
+                          value: item._count.id
+                        }))}
+                        layout="vertical"
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis type="category" dataKey="name" width={100} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="value" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card className="shadow-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -664,7 +815,7 @@ export default function AnalyticsPage() {
               </CardContent>
             </Card>
           </TabsContent>
-          
+
           <TabsContent value="productivity" className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card className="shadow-sm border-0 bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-950/50 dark:to-indigo-900/20">
@@ -674,11 +825,11 @@ export default function AnalyticsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-indigo-900 dark:text-indigo-100">
-                    {taskAnalytics?.tasksByStatus.length 
+                    {taskAnalytics?.tasksByStatus.length
                       ? Math.round(
-                          (taskAnalytics.tasksByStatus.find(s => s.status === "DONE")?._count.id || 0) /
-                          taskAnalytics.tasksByStatus.reduce((sum, item) => sum + item._count.id, 0) * 100
-                        ) 
+                        (taskAnalytics.tasksByStatus.find(s => s.status === "DONE")?._count.id || 0) /
+                        taskAnalytics.tasksByStatus.reduce((sum, item) => sum + item._count.id, 0) * 100
+                      )
                       : 0}%
                   </div>
                   <p className="text-xs text-indigo-600 dark:text-indigo-400">
@@ -686,7 +837,7 @@ export default function AnalyticsPage() {
                   </p>
                 </CardContent>
               </Card>
-              
+
               <Card className="shadow-sm border-0 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/50 dark:to-purple-900/20">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-purple-700 dark:text-purple-300">Avg. Completion Time</CardTitle>
@@ -701,7 +852,7 @@ export default function AnalyticsPage() {
                   </p>
                 </CardContent>
               </Card>
-              
+
               <Card className="shadow-sm border-0 bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-950/50 dark:to-emerald-900/20">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Current Streak</CardTitle>
@@ -716,7 +867,7 @@ export default function AnalyticsPage() {
                   </p>
                 </CardContent>
               </Card>
-              
+
               <Card className="shadow-sm border-0 bg-gradient-to-br from-cyan-50 to-cyan-100 dark:from-cyan-950/50 dark:to-cyan-900/20">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-cyan-700 dark:text-cyan-300">Total Completed</CardTitle>
@@ -732,7 +883,7 @@ export default function AnalyticsPage() {
                 </CardContent>
               </Card>
             </div>
-            
+
             <Card className="shadow-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -764,7 +915,7 @@ export default function AnalyticsPage() {
                 </div>
               </CardContent>
             </Card>
-            
+
             {productivityAnalytics?.weeklyProductivity && productivityAnalytics.weeklyProductivity.length > 0 && (
               <Card className="shadow-sm">
                 <CardHeader>
@@ -796,7 +947,7 @@ export default function AnalyticsPage() {
               </Card>
             )}
           </TabsContent>
-          
+
           {(userRole === "MANAGER" || userRole === "ADMIN") && teamAnalytics && (
             <TabsContent value="team" className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -814,7 +965,7 @@ export default function AnalyticsPage() {
                     </p>
                   </CardContent>
                 </Card>
-                
+
                 <Card className="shadow-sm border-0 bg-gradient-to-br from-teal-50 to-teal-100 dark:from-teal-950/50 dark:to-teal-900/20">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium text-teal-700 dark:text-teal-300">Avg. Completion Rate</CardTitle>
@@ -823,7 +974,7 @@ export default function AnalyticsPage() {
                   <CardContent>
                     <div className="text-2xl font-bold text-teal-900 dark:text-teal-100">
                       {Math.round(
-                        teamAnalytics.teamProductivity.reduce((sum, member) => sum + member.completionRate, 0) / 
+                        teamAnalytics.teamProductivity.reduce((sum, member) => sum + member.completionRate, 0) /
                         teamAnalytics.teamProductivity.length
                       )}%
                     </div>
@@ -832,7 +983,7 @@ export default function AnalyticsPage() {
                     </p>
                   </CardContent>
                 </Card>
-                
+
                 <Card className="shadow-sm border-0 bg-gradient-to-br from-rose-50 to-rose-100 dark:from-rose-950/50 dark:to-rose-900/20">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium text-rose-700 dark:text-rose-300">Overdue Tasks</CardTitle>
@@ -847,7 +998,7 @@ export default function AnalyticsPage() {
                     </p>
                   </CardContent>
                 </Card>
-                
+
                 <Card className="shadow-sm border-0 bg-gradient-to-br from-sky-50 to-sky-100 dark:from-sky-950/50 dark:to-sky-900/20">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium text-sky-700 dark:text-sky-300">Active Projects</CardTitle>
@@ -863,7 +1014,7 @@ export default function AnalyticsPage() {
                   </CardContent>
                 </Card>
               </div>
-              
+
               <Card className="shadow-sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -896,7 +1047,7 @@ export default function AnalyticsPage() {
                   </div>
                 </CardContent>
               </Card>
-              
+
               <div className="grid gap-6 md:grid-cols-2">
                 <Card className="shadow-sm">
                   <CardHeader>
@@ -935,7 +1086,43 @@ export default function AnalyticsPage() {
                     </div>
                   </CardContent>
                 </Card>
-                
+
+                {/* Organization Status Chart */}
+                {selectedOrganization === "ALL" && (
+                  <Card className="shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Building className="h-5 w-5" />
+                        Organization Overview
+                      </CardTitle>
+                      <CardDescription>
+                        Tasks distributed across organizations
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-80">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={teamAnalytics.organizationStatus?.map(item => ({
+                              name: item.organization?.name || "Unknown",
+                              value: item._count.id
+                            })) || []}
+                            layout="vertical"
+                            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis type="number" />
+                            <YAxis type="category" dataKey="name" width={100} />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="value" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
                 <Card className="shadow-sm">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -969,7 +1156,7 @@ export default function AnalyticsPage() {
                   </CardContent>
                 </Card>
               </div>
-              
+
               <Card className="shadow-sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">

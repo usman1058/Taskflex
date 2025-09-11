@@ -1,4 +1,3 @@
-// app/api/analytics/tasks/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
@@ -15,16 +14,27 @@ export async function GET(request: NextRequest) {
     
     const { searchParams } = new URL(request.url)
     const months = parseInt(searchParams.get("months") || "6")
+    const organizationId = searchParams.get("organizationId")
+    
+    // Build the base where clause
+    const baseWhere: any = {
+      OR: [
+        { assignees: { some: { userId: session.user.id } } },
+        { creatorId: session.user.id }
+      ]
+    }
+    
+    // Add organization filter if provided
+    if (organizationId && organizationId !== "ALL") {
+      baseWhere.project = {
+        organizationId: organizationId
+      }
+    }
     
     // Get tasks by status
     const tasksByStatus = await db.task.groupBy({
       by: ["status"],
-      where: {
-        OR: [
-          { assigneeId: session.user.id },
-          { creatorId: session.user.id }
-        ]
-      },
+      where: baseWhere,
       _count: {
         id: true
       }
@@ -33,12 +43,7 @@ export async function GET(request: NextRequest) {
     // Get tasks by priority
     const tasksByPriority = await db.task.groupBy({
       by: ["priority"],
-      where: {
-        OR: [
-          { assigneeId: session.user.id },
-          { creatorId: session.user.id }
-        ]
-      },
+      where: baseWhere,
       _count: {
         id: true
       }
@@ -47,12 +52,7 @@ export async function GET(request: NextRequest) {
     // Get tasks by project
     const tasksByProject = await db.task.groupBy({
       by: ["projectId"],
-      where: {
-        OR: [
-          { assigneeId: session.user.id },
-          { creatorId: session.user.id }
-        ]
-      },
+      where: baseWhere,
       _count: {
         id: true
       },
@@ -88,6 +88,64 @@ export async function GET(request: NextRequest) {
       }
     })
     
+    // Get tasks by organization (only if not filtering by a specific organization)
+    let tasksByOrganization = []
+    if (!organizationId || organizationId === "ALL") {
+      const tasksByOrg = await db.task.findMany({
+        where: {
+          ...baseWhere,
+          project: {
+            organizationId: {
+              not: null
+            }
+          }
+        },
+        include: {
+          project: {
+            select: {
+              organizationId: true
+            }
+          }
+        }
+      })
+      
+      // Group by organizationId
+      const orgGroups = tasksByOrg.reduce((acc, task) => {
+        const orgId = task.project?.organizationId
+        if (orgId) {
+          if (!acc[orgId]) {
+            acc[orgId] = []
+          }
+          acc[orgId].push(task)
+        }
+        return acc
+      }, {} as Record<string, typeof tasksByOrg>)
+      
+      // Get organization details
+      const organizationIds = Object.keys(orgGroups)
+      const organizations = await db.organization.findMany({
+        where: {
+          id: {
+            in: organizationIds
+          }
+        },
+        select: {
+          id: true,
+          name: true
+        }
+      })
+      
+      // Map organization details to the result
+      tasksByOrganization = Object.entries(orgGroups).map(([orgId, tasks]) => {
+        const organization = organizations.find(o => o.id === orgId)
+        return {
+          organizationId: orgId,
+          _count: { id: tasks.length },
+          organization
+        }
+      })
+    }
+    
     // Get tasks completed per month for the last N months
     const now = new Date()
     const monthsData = []
@@ -99,10 +157,7 @@ export async function GET(request: NextRequest) {
       const completedTasks = await db.task.count({
         where: {
           status: "DONE",
-          OR: [
-            { assigneeId: session.user.id },
-            { creatorId: session.user.id }
-          ],
+          ...baseWhere,
           updatedAt: {
             gte: monthStart,
             lte: monthEnd
@@ -119,12 +174,7 @@ export async function GET(request: NextRequest) {
     // Get task distribution by type
     const tasksByType = await db.task.groupBy({
       by: ["type"],
-      where: {
-        OR: [
-          { assigneeId: session.user.id },
-          { creatorId: session.user.id }
-        ]
-      },
+      where: baseWhere,
       _count: {
         id: true
       }
@@ -134,13 +184,14 @@ export async function GET(request: NextRequest) {
       tasksByStatus,
       tasksByPriority,
       tasksByProject: tasksByProjectWithDetails,
+      tasksByOrganization,
       tasksByMonth: monthsData,
       tasksByType
     })
   } catch (error) {
     console.error("Error fetching task analytics:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: error instanceof Error ? error.message : "Internal server error" },
       { status: 500 }
     )
   }

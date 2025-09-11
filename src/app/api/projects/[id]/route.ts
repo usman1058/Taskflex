@@ -22,13 +22,26 @@ export async function GET(
       where: { id },
       include: {
         members: {
-          select: { id: true, name: true, email: true, avatar: true }
+          select: { 
+            id: true, 
+            name: true, 
+            email: true, 
+            avatar: true 
+          }
         },
         organization: {
-          select: { id: true, name: true }
+          select: { 
+            id: true, 
+            name: true,
+            description: true
+          }
         },
         team: {
-          select: { id: true, name: true }
+          select: { 
+            id: true, 
+            name: true,
+            description: true
+          }
         },
         _count: {
           select: {
@@ -41,6 +54,15 @@ export async function GET(
     
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
+    }
+    
+    // Check if user has access to this project
+    const hasAccess = project.members.some(member => member.id === session.user.id) ||
+                     session.user.role === "ADMIN" ||
+                     session.user.role === "MANAGER"
+    
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
     
     return NextResponse.json(project)
@@ -106,7 +128,12 @@ export async function PUT(
       },
       include: {
         members: {
-          select: { id: true, name: true, email: true, avatar: true }
+          select: { 
+            id: true, 
+            name: true, 
+            email: true, 
+            avatar: true 
+          }
         }
       }
     })

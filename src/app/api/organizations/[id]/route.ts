@@ -21,7 +21,11 @@ export async function GET(
       where: { id },
       include: {
         members: {
-          select: { id: true, name: true, email: true, avatar: true }
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, avatar: true }
+            }
+          }
         },
         projects: {
           include: {
@@ -55,6 +59,14 @@ export async function GET(
     
     if (!organization) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 })
+    }
+    
+    // Check if user has access to this organization
+    const hasAccess = organization.members.some(member => member.userId === session.user.id) ||
+                     session.user.role === "ADMIN"
+    
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
     
     return NextResponse.json(organization)
@@ -99,7 +111,11 @@ export async function PUT(
       },
       include: {
         members: {
-          select: { id: true, name: true, email: true, avatar: true }
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, avatar: true }
+            }
+          }
         },
         projects: {
           include: {

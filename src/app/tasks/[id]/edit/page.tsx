@@ -1,6 +1,4 @@
-// app/tasks/[id]/edit/page.tsx
 "use client"
-
 import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { useSession } from "next-auth/react"
@@ -25,7 +23,8 @@ import {
     Folder,
     Users,
     Tag,
-    AlertCircle
+    AlertCircle,
+    X
 } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
@@ -60,13 +59,14 @@ interface Task {
         email: string
         avatar: string | null
     }
-    assigneeId: string | null
-    assignee: {
-        id: string
-        name: string | null
-        email: string
-        avatar: string | null
-    } | null
+    assignees: Array<{
+        user: {
+            id: string
+            name: string | null
+            email: string
+            avatar: string | null
+        }
+    }>
     parentTaskId: string | null
     taskTags: {
         tag: {
@@ -113,23 +113,21 @@ export default function TaskEditPage() {
     const params = useParams()
     const { data: session } = useSession()
     const taskId = params.id as string
-
+    
     const [task, setTask] = useState<Task | null>(null)
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
-
     const [projects, setProjects] = useState<Project[]>([])
     const [teams, setTeams] = useState<Team[]>([])
     const [users, setUsers] = useState<User[]>([])
     const [tags, setTags] = useState<Tag[]>([])
     const [availableParentTasks, setAvailableParentTasks] = useState<Task[]>([])
-
     const [selectedTags, setSelectedTags] = useState<string[]>([])
-    const [selectedUser, setSelectedUser] = useState<User | null>(null)
+    const [selectedUsers, setSelectedUsers] = useState<User[]>([])
     const [attachments, setAttachments] = useState<File[]>([])
     const [uploadingAttachments, setUploadingAttachments] = useState(false)
-
+    
     const [formData, setFormData] = useState({
         title: "",
         description: "",
@@ -139,11 +137,9 @@ export default function TaskEditPage() {
         dueDate: null as Date | null,
         projectId: "",
         teamId: "",
-        assigneeId: "",
         parentTaskId: ""
     })
-
-
+    
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -153,7 +149,7 @@ export default function TaskEditPage() {
                     setLoading(false);
                     return;
                 }
-
+                
                 // Fetch task details
                 const taskRes = await fetch(`/api/tasks/${taskId}`);
                 if (!taskRes.ok) {
@@ -167,9 +163,10 @@ export default function TaskEditPage() {
                     }
                     throw new Error(errorMessage);
                 }
+                
                 const taskData = await taskRes.json();
                 setTask(taskData);
-
+                
                 // Set form data
                 setFormData({
                     title: taskData.title,
@@ -180,18 +177,17 @@ export default function TaskEditPage() {
                     dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
                     projectId: taskData.projectId || "",
                     teamId: taskData.teamId || "",
-                    assigneeId: taskData.assigneeId || "",
                     parentTaskId: taskData.parentTaskId || ""
                 });
-
-                // Set selected user if assignee exists
-                if (taskData.assignee) {
-                    setSelectedUser(taskData.assignee);
+                
+                // Set selected users
+                if (taskData.assignees && taskData.assignees.length > 0) {
+                    setSelectedUsers(taskData.assignees.map(a => a.user));
                 }
-
+                
                 // Set selected tags
                 setSelectedTags(taskData.taskTags?.map((taskTag: any) => taskTag.tag.id) || []);
-
+                
                 // Fetch assignees (users that can be assigned tasks)
                 const assigneesResponse = await fetch("/api/assignees");
                 if (assigneesResponse.ok) {
@@ -200,7 +196,7 @@ export default function TaskEditPage() {
                 } else {
                     console.error("Failed to fetch assignees");
                 }
-
+                
                 // Fetch projects
                 const projectsRes = await fetch("/api/projects");
                 if (projectsRes.ok) {
@@ -209,7 +205,7 @@ export default function TaskEditPage() {
                 } else {
                     console.error("Failed to fetch projects");
                 }
-
+                
                 // Fetch teams
                 const teamsRes = await fetch("/api/teams");
                 if (teamsRes.ok) {
@@ -218,7 +214,7 @@ export default function TaskEditPage() {
                 } else {
                     console.error("Failed to fetch teams");
                 }
-
+                
                 // Fetch tags
                 const tagsRes = await fetch("/api/tags");
                 if (tagsRes.ok) {
@@ -227,7 +223,7 @@ export default function TaskEditPage() {
                 } else {
                     console.error("Failed to fetch tags");
                 }
-
+                
                 // Fetch available parent tasks
                 const parentTasksRes = await fetch("/api/tasks");
                 if (parentTasksRes.ok) {
@@ -249,16 +245,16 @@ export default function TaskEditPage() {
                 setLoading(false);
             }
         };
-
+        
         if (taskId) {
             fetchData();
         }
     }, [taskId, session]);
-
+    
     const handleInputChange = (field: string, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }))
     }
-
+    
     const handleTagToggle = (tagId: string) => {
         setSelectedTags(prev =>
             prev.includes(tagId)
@@ -266,37 +262,37 @@ export default function TaskEditPage() {
                 : [...prev, tagId]
         )
     }
-
+    
     const handleUserSelect = (user: User) => {
-        setSelectedUser(user)
-        setFormData(prev => ({ ...prev, assigneeId: user.id }))
+        if (!selectedUsers.some(u => u.id === user.id)) {
+            setSelectedUsers(prev => [...prev, user])
+        }
     }
-
-    const handleClearUser = () => {
-        setSelectedUser(null)
-        setFormData(prev => ({ ...prev, assigneeId: "" }))
+    
+    const handleRemoveUser = (userId: string) => {
+        setSelectedUsers(prev => prev.filter(u => u.id !== userId))
     }
-
+    
     const uploadAttachments = async (): Promise<any[]> => {
         if (attachments.length === 0) return []
-
+        
         setUploadingAttachments(true)
         const uploadedAttachments: any[] = []
-
+        
         try {
             for (const file of attachments) {
                 const formData = new FormData()
                 formData.append('file', file)
-
+                
                 const response = await fetch('/api/upload', {
                     method: 'POST',
                     body: formData,
                 })
-
+                
                 if (!response.ok) {
                     throw new Error(`Failed to upload ${file.name}`)
                 }
-
+                
                 const result = await response.json()
                 uploadedAttachments.push(result)
             }
@@ -306,30 +302,30 @@ export default function TaskEditPage() {
         } finally {
             setUploadingAttachments(false)
         }
-
+        
         return uploadedAttachments
     }
-
+    
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setSaving(true)
         setError(null)
-
+        
         try {
             // Upload attachments first
             const uploadedAttachments = await uploadAttachments()
-
+            
             const payload = {
                 ...formData,
                 dueDate: formData.dueDate ? formData.dueDate.toISOString() : null,
                 projectId: formData.projectId || null, // Convert empty string to null
                 teamId: formData.teamId || null,       // Convert empty string to null
-                assigneeId: formData.assigneeId || null, // Convert empty string to null
                 parentTaskId: formData.parentTaskId || null, // Convert empty string to null
+                assigneeIds: selectedUsers.map(u => u.id),
                 tags: selectedTags,
                 attachments: uploadedAttachments
             }
-
+            
             const response = await fetch(`/api/tasks/${taskId}`, {
                 method: "PUT",
                 headers: {
@@ -337,11 +333,10 @@ export default function TaskEditPage() {
                 },
                 body: JSON.stringify(payload)
             })
-
+            
             if (!response.ok) {
                 const errorData = await response.json()
                 console.error("Error response:", errorData); // Log the error response
-
                 // Try to extract more detailed error information
                 let errorMessage = "Failed to update task";
                 if (errorData.error) {
@@ -351,10 +346,9 @@ export default function TaskEditPage() {
                 } else if (typeof errorData === 'string') {
                     errorMessage = errorData;
                 }
-
                 throw new Error(errorMessage)
             }
-
+            
             // Redirect to task detail page
             router.push(`/tasks/${taskId}`)
         } catch (err) {
@@ -364,7 +358,7 @@ export default function TaskEditPage() {
             setSaving(false)
         }
     }
-
+    
     if (loading) {
         return (
             <MainLayout>
@@ -374,7 +368,7 @@ export default function TaskEditPage() {
             </MainLayout>
         )
     }
-
+    
     if (error && !task) {
         return (
             <MainLayout>
@@ -387,7 +381,7 @@ export default function TaskEditPage() {
             </MainLayout>
         )
     }
-
+    
     return (
         <MainLayout>
             <div className="space-y-6">
@@ -403,14 +397,14 @@ export default function TaskEditPage() {
                         </p>
                     </div>
                 </div>
-
+                
                 {error && (
                     <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 flex items-center gap-2">
                         <AlertCircle className="h-5 w-5 text-destructive" />
                         <p className="text-destructive">{error}</p>
                     </div>
                 )}
-
+                
                 <form onSubmit={handleSubmit} className="space-y-8">
                     <div className="grid gap-6 md:grid-cols-3">
                         <div className="md:col-span-2 space-y-6">
@@ -431,6 +425,7 @@ export default function TaskEditPage() {
                                             required
                                         />
                                     </div>
+                                    
                                     <div>
                                         <Label htmlFor="description">Description</Label>
                                         <Textarea
@@ -440,6 +435,7 @@ export default function TaskEditPage() {
                                             rows={4}
                                         />
                                     </div>
+                                    
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                         <div>
                                             <Label htmlFor="type">Type</Label>
@@ -459,6 +455,7 @@ export default function TaskEditPage() {
                                                 </SelectContent>
                                             </Select>
                                         </div>
+                                        
                                         <div>
                                             <Label htmlFor="status">Status</Label>
                                             <Select
@@ -478,6 +475,7 @@ export default function TaskEditPage() {
                                                 </SelectContent>
                                             </Select>
                                         </div>
+                                        
                                         <div>
                                             <Label htmlFor="priority">Priority</Label>
                                             <Select
@@ -496,6 +494,7 @@ export default function TaskEditPage() {
                                             </Select>
                                         </div>
                                     </div>
+                                    
                                     <div>
                                         <Label>Due Date</Label>
                                         <Popover>
@@ -523,6 +522,7 @@ export default function TaskEditPage() {
                                     </div>
                                 </CardContent>
                             </Card>
+                            
                             <Card>
                                 <CardHeader>
                                     <CardTitle>Tags</CardTitle>
@@ -550,6 +550,7 @@ export default function TaskEditPage() {
                                 </CardContent>
                             </Card>
                         </div>
+                        
                         <div className="space-y-6">
                             <Card>
                                 <CardHeader>
@@ -563,15 +564,38 @@ export default function TaskEditPage() {
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     <div>
-                                        <Label htmlFor="assignee">Assignee</Label>
+                                        <Label htmlFor="assignees">Assignees</Label>
                                         <UserSearch
                                             users={users}
-                                            selectedUser={selectedUser}
+                                            selectedUsers={selectedUsers}
                                             onUserSelect={handleUserSelect}
-                                            onClearUser={handleClearUser}
+                                            onRemoveUser={handleRemoveUser}
+                                            multiSelect={true}
                                         />
+                                        
+                                        {selectedUsers.length > 0 && (
+                                            <div className="flex flex-wrap gap-2 mt-2">
+                                                {selectedUsers.map((user) => (
+                                                    <Badge key={user.id} variant="secondary" className="flex items-center gap-1">
+                                                        <Avatar className="h-4 w-4 mr-1">
+                                                            <AvatarImage src={user.avatar || ""} />
+                                                            <AvatarFallback className="text-xs">
+                                                                {user.name?.charAt(0) || user.email.charAt(0)}
+                                                            </AvatarFallback>
+                                                        </Avatar>
+                                                        {user.name || user.email}
+                                                        <X 
+                                                            className="h-3 w-3 cursor-pointer" 
+                                                            onClick={() => handleRemoveUser(user.id)}
+                                                        />
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
+                                    
                                     <Separator />
+                                    
                                     <div>
                                         <Label>Creator</Label>
                                         <div className="flex items-center gap-2 mt-1">
@@ -586,6 +610,7 @@ export default function TaskEditPage() {
                                     </div>
                                 </CardContent>
                             </Card>
+                            
                             <Card>
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2">
@@ -615,6 +640,7 @@ export default function TaskEditPage() {
                                     </Select>
                                 </CardContent>
                             </Card>
+                            
                             <Card>
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2">
@@ -644,6 +670,7 @@ export default function TaskEditPage() {
                                     </Select>
                                 </CardContent>
                             </Card>
+                            
                             <Card>
                                 <CardHeader>
                                     <CardTitle>Parent Task</CardTitle>
@@ -670,7 +697,7 @@ export default function TaskEditPage() {
                                     </Select>
                                 </CardContent>
                             </Card>
-
+                            
                             {/* Attachments */}
                             <AttachmentUpload
                                 attachments={attachments}
@@ -678,7 +705,7 @@ export default function TaskEditPage() {
                                 existingAttachments={task?.attachments || []}
                                 uploading={uploadingAttachments}
                             />
-
+                            
                             <div className="flex justify-end gap-2">
                                 <Button type="button" variant="outline" onClick={() => router.back()}>
                                     Cancel

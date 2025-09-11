@@ -1,6 +1,4 @@
-// app/tasks/page.tsx
 "use client"
-
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { MainLayout } from "@/components/layout/main-layout"
@@ -22,7 +20,11 @@ import {
   ChevronRight,
   ChevronDown,
   FolderOpen,
-  FileText
+  FileText,
+  User,
+  Calendar,
+  MessageSquare,
+  Paperclip
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -35,6 +37,7 @@ import {
 import Link from "next/link"
 import { format } from "date-fns"
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 interface Task {
   id: string
@@ -96,7 +99,7 @@ export default function TasksPage() {
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"list" | "hierarchy">("hierarchy")
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
-
+  
   // Delete confirmation state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null)
@@ -110,19 +113,18 @@ export default function TasksPage() {
     try {
       setLoading(true)
       setError(null)
-
+      
       // Build query parameters
       const params = new URLSearchParams()
       if (searchTerm) params.append("search", searchTerm)
       if (statusFilter !== "all") params.append("status", statusFilter)
       if (priorityFilter !== "all") params.append("priority", priorityFilter)
-
+      
       const response = await fetch(`/api/tasks?${params.toString()}`)
-
       if (!response.ok) {
         throw new Error(`Failed to fetch tasks: ${response.status}`)
       }
-
+      
       const data = await response.json()
       setTasks(data.tasks)
     } catch (error) {
@@ -156,21 +158,20 @@ export default function TasksPage() {
 
   const handleDeleteConfirm = async () => {
     if (!taskToDelete) return
-
+    
     try {
       setDeleting(true)
-
       const response = await fetch(`/api/tasks/${taskToDelete.id}`, {
         method: "DELETE"
       })
-
+      
       if (!response.ok) {
         throw new Error("Failed to delete task")
       }
-
+      
       // Remove the task from the list
       setTasks(tasks.filter(task => task.id !== taskToDelete.id))
-
+      
       // Close the dialog
       setDeleteDialogOpen(false)
       setTaskToDelete(null)
@@ -191,11 +192,11 @@ export default function TasksPage() {
         },
         body: JSON.stringify({ status: newStatus })
       })
-
+      
       if (!response.ok) {
         throw new Error("Failed to update task status")
       }
-
+      
       // Update the task in the list
       setTasks(tasks.map(task =>
         task.id === taskId ? { ...task, status: newStatus } : task
@@ -241,15 +242,15 @@ export default function TasksPage() {
   const groupTasksByHierarchy = (tasks: Task[]) => {
     const parentTasks = tasks.filter(task => !task.parentTask)
     const childTasks = tasks.filter(task => task.parentTask)
-
+    
     // Create a map of parent tasks with their children
     const taskMap = new Map<string, Task & { children: Task[] }>()
-
+    
     // Initialize map with parent tasks
     parentTasks.forEach(task => {
       taskMap.set(task.id, { ...task, children: [] })
     })
-
+    
     // Add child tasks to their parents
     childTasks.forEach(task => {
       if (task.parentTask && taskMap.has(task.parentTask.id)) {
@@ -260,51 +261,84 @@ export default function TasksPage() {
         taskMap.set(task.id, { ...task, children: [] })
       }
     })
-
+    
     return Array.from(taskMap.values())
   }
 
+  // Updated renderTaskCard function with improved hierarchy design
   const renderTaskCard = (task: Task & { children?: Task[] }, level = 0) => {
     const isExpanded = expandedTasks.has(task.id)
     const hasChildren = task.children && task.children.length > 0
-
+    
+    // Calculate indentation based on level
+    const indentWidth = level * 24
+    
     return (
       <div key={task.id} className="space-y-2">
-        <Card
-          className={`hover:shadow-md transition-shadow ${level > 0 ? 'border-l-4 border-l-blue-200' : ''}`}
+        <Card 
+          className={`hover:shadow-md transition-all duration-200 overflow-hidden ${
+            level > 0 ? 'ml-6 border-l-4 border-l-blue-200' : ''
+          }`}
         >
           <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div className="flex-1 space-y-2">
-                {/* Parent task info for subtasks */}
-                {level > 0 && task.parentTask && (
-                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                    <FileText className="h-3 w-3" />
-                    <span>Subtask of: {task.parentTask.title}</span>
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+              <div className="flex-1 space-y-3">
+                {/* Hierarchy connector and title section */}
+                <div className="flex items-start gap-3">
+                  {/* Hierarchy connector and expand/collapse button */}
+                  <div className="flex flex-col items-center mt-1">
+                    {level > 0 && (
+                      <div className="h-6 w-px bg-border"></div>
+                    )}
+                    {hasChildren && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={() => toggleTaskExpansion(task.id)}
+                      >
+                        {isExpanded ?
+                          <ChevronDown className="h-4 w-4" /> :
+                          <ChevronRight className="h-4 w-4" />
+                        }
+                      </Button>
+                    )}
+                    {!hasChildren && level > 0 && (
+                      <div className="h-6 w-6 flex items-center justify-center">
+                        <div className="h-2 w-2 rounded-full bg-border"></div>
+                      </div>
+                    )}
                   </div>
-                )}
-
-                <div className="flex items-center gap-2">
-                  {getStatusIcon(task.status)}
-                  <h3 className="font-semibold">{task.title}</h3>
-                  {hasChildren && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() => toggleTaskExpansion(task.id)}
-                    >
-                      {isExpanded ?
-                        <ChevronDown className="h-4 w-4" /> :
-                        <ChevronRight className="h-4 w-4" />
-                      }
-                    </Button>
-                  )}
+                  
+                  {/* Status icon and title */}
+                  <div className="flex-1">
+                    <div className="flex items-start gap-2">
+                      {getStatusIcon(task.status)}
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-lg">{task.title}</h3>
+                        {hasChildren && (
+                          <span className="text-xs text-muted-foreground ml-2">
+                            {task.children?.length} subtask{task.children?.length !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Parent task info for subtasks */}
+                    {level > 0 && task.parentTask && (
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                        <FileText className="h-3 w-3" />
+                        <span>Subtask of: {task.parentTask.title}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-
-                <p className="text-muted-foreground text-sm line-clamp-2">{task.description}</p>
-
-                <div className="flex flex-wrap gap-2">
+                
+                <p className="text-muted-foreground text-sm line-clamp-2 ml-9">
+                  {task.description}
+                </p>
+                
+                <div className="flex flex-wrap gap-2 ml-9">
                   <Badge className={getStatusColor(task.status)}>
                     {task.status.replace("_", " ")}
                   </Badge>
@@ -317,22 +351,62 @@ export default function TasksPage() {
                     </Badge>
                   ))}
                 </div>
-
-                <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                  <span>Project: {task.project?.name || "No project"}</span>
-                  <span>Due: {task.dueDate ? format(new Date(task.dueDate), "MMM d, yyyy") : "No due date"}</span>
-                  {/* Display multiple assignees */}
-                  <span>
-                    Assignees: {task.assignees && task.assignees.length > 0
-                      ? task.assignees.map(a => a.user.name || a.user.email).join(", ")
-                      : "Unassigned"}
-                  </span>
-                  <span>Comments: {task._count.comments}</span>
-                  <span>Attachments: {task._count.attachments}</span>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm ml-9">
+                  <div className="flex items-center gap-2">
+                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                    <span className="truncate">
+                      {task.project?.name || "No project"}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <span>
+                      {task.dueDate ? format(new Date(task.dueDate), "MMM d, yyyy") : "No due date"}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex items-center gap-1">
+                      {task.assignees && task.assignees.length > 0 ? (
+                        <>
+                          <div className="flex -space-x-2">
+                            {task.assignees.slice(0, 3).map((assignee, index) => (
+                              <Avatar key={assignee.user.id} className="h-6 w-6 border-2 border-background">
+                                <AvatarImage src={assignee.user.avatar || ""} />
+                                <AvatarFallback className="text-xs">
+                                  {assignee.user.name?.charAt(0) || assignee.user.email.charAt(0)}
+                                </AvatarFallback>
+                              </Avatar>
+                            ))}
+                          </div>
+                          {task.assignees.length > 3 && (
+                            <span className="text-xs text-muted-foreground">
+                              +{task.assignees.length - 3} more
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Unassigned</span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                    <span>{task._count.comments} comments</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="h-4 w-4 text-muted-foreground" />
+                    <span>{task._count.attachments} attachments</span>
+                  </div>
                 </div>
-
+                
                 {/* Quick status change buttons */}
-                <div className="flex gap-2 pt-2">
+                <div className="flex flex-wrap gap-2 pt-2 ml-9">
                   <Button
                     size="sm"
                     variant={task.status === "OPEN" ? "default" : "outline"}
@@ -370,7 +444,7 @@ export default function TasksPage() {
                   </Button>
                 </div>
               </div>
-
+              
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" asChild>
                   <Link href={`/tasks/${task.id}`}>View</Link>
@@ -400,13 +474,18 @@ export default function TasksPage() {
             </div>
           </CardContent>
         </Card>
-
+        
         {/* Render child tasks if expanded */}
         {hasChildren && isExpanded && (
-          <div className="ml-8 space-y-2">
-            {task.children?.map(childTask =>
-              renderTaskCard(childTask, level + 1)
-            )}
+          <div className="relative">
+            {/* Vertical connector line */}
+            <div className="absolute left-6 top-0 bottom-0 w-px bg-border"></div>
+            
+            <div className="ml-6 space-y-2">
+              {task.children?.map(childTask =>
+                renderTaskCard(childTask, level + 1)
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -443,14 +522,14 @@ export default function TasksPage() {
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Tasks</h1>
             <p className="text-muted-foreground">
               Manage and track all your tasks in one place
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant={viewMode === "list" ? "default" : "outline"}
               onClick={() => setViewMode("list")}
@@ -471,7 +550,7 @@ export default function TasksPage() {
             </Button>
           </div>
         </div>
-
+        
         {/* Filters */}
         <Card>
           <CardContent className="pt-6">
@@ -499,7 +578,7 @@ export default function TasksPage() {
                   fetchTasks()
                 }}
               >
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger className="w-full sm:w-[180px]">
                   <SelectValue placeholder="Filter by status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -518,7 +597,7 @@ export default function TasksPage() {
                   fetchTasks()
                 }}
               >
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger className="w-full sm:w-[180px]">
                   <SelectValue placeholder="Filter by priority" />
                 </SelectTrigger>
                 <SelectContent>
@@ -529,14 +608,14 @@ export default function TasksPage() {
                   <SelectItem value="URGENT">Urgent</SelectItem>
                 </SelectContent>
               </Select>
-              <Button onClick={handleSearch}>
+              <Button onClick={handleSearch} className="w-full sm:w-auto">
                 <Filter className="mr-2 h-4 w-4" />
                 Apply
               </Button>
             </div>
           </CardContent>
         </Card>
-
+        
         {/* Task List */}
         <div className="space-y-4">
           {viewMode === "hierarchy" ? (
@@ -547,7 +626,7 @@ export default function TasksPage() {
             tasks.map(task => renderTaskCard(task))
           )}
         </div>
-
+        
         {tasks.length === 0 && !loading && (
           <Card>
             <CardContent className="pt-6">
@@ -566,7 +645,7 @@ export default function TasksPage() {
           </Card>
         )}
       </div>
-
+      
       {/* Delete Confirmation Dialog */}
       <ConfirmationDialog
         open={deleteDialogOpen}

@@ -1,3 +1,4 @@
+// app/api/projects/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
@@ -15,8 +16,20 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search") || ""
     const status = searchParams.get("status") || ""
     
+    // Get user role to determine permissions
+    const user = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true }
+    })
+    
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    
+    // Build where clause based on user role and search parameters
     const whereClause: any = {}
     
+    // Add search conditions if provided
     if (search) {
       whereClause.OR = [
         { name: { contains: search, mode: "insensitive" } },
@@ -25,9 +38,41 @@ export async function GET(request: NextRequest) {
       ]
     }
     
+    // Add status filter if provided
     if (status && status !== "ALL") {
       whereClause.status = status
     }
+    
+    // Add permission-based filtering
+    if (user.role !== "ADMIN" && user.role !== "MANAGER") {
+      console.log(`User ${session.user.id} with role ${user.role} is requesting projects. Applying member filter.`)
+      
+      // For regular users, only show projects they're members of
+      if (whereClause.OR) {
+        // If there are already OR conditions (from search), we need to add the member filter
+        // We'll use AND with the existing OR conditions
+        whereClause.AND = [
+          {
+            members: {
+              some: {
+                id: session.user.id
+              }
+            }
+          }
+        ]
+      } else {
+        // If no OR conditions, just add the member filter directly
+        whereClause.members = {
+          some: {
+            id: session.user.id
+          }
+        }
+      }
+    } else {
+      console.log(`User ${session.user.id} with role ${user.role} can see all projects.`)
+    }
+    
+    console.log("Final where clause:", JSON.stringify(whereClause, null, 2))
     
     const projects = await db.project.findMany({
       where: whereClause,
@@ -44,6 +89,8 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: "desc" }
     })
+    
+    console.log(`Found ${projects.length} projects for user ${session.user.id}`)
     
     return NextResponse.json(projects)
   } catch (error) {
@@ -85,41 +132,37 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Create the project
+    // Create the project with the current user as a member
     const project = await db.project.create({
       data: {
         name,
         description,
         key,
         members: {
-          connect: [{ id: session.user.id }]
+          connect: [{ id: session.user.id }, ...memberIds.map((id: string) => ({ id }))]
         }
       },
       include: {
         members: {
           select: { id: true, name: true, email: true, avatar: true }
+        },
+        _count: {
+          select: {
+            tasks: true,
+            members: true
+          }
         }
       }
     })
     
-    // Add additional members if provided
-    if (memberIds.length > 0) {
-      await db.project.update({
-        where: { id: project.id },
-        data: {
-          members: {
-            connect: memberIds.map((id: string) => ({ id }))
-          }
-        }
-      })
-      
-      // Create notifications for all new members
-      for (const memberId of memberIds) {
+    // Create notifications for all new members (excluding the creator)
+    for (const memberId of memberIds) {
+      if (memberId !== session.user.id) {
         await db.notification.create({
           data: {
             title: "Added to Project",
             message: `You have been added to the project "${name}"`,
-            type: "PROJECT_INVITE",
+            type: "SYSTEM",
             userId: memberId
           }
         })

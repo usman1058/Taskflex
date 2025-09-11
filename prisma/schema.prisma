@@ -17,27 +17,24 @@ model User {
   status        UserStatus @default(ACTIVE)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-
   // Authentication
   accounts      Account[]
   sessions      Session[]
-
   // Relationships
   tasks         Task[]              // Tasks created by the user
   assignedTasks TaskAssignee[]      // Pivot relation
   comments      Comment[]
   projects      Project[] @relation("ProjectMembers")
-  organizations Organization[] @relation("OrganizationMembers")
+  organizationMemberships OrganizationMember[]
+  organizations Organization[] @relation("OrganizationMemberships")
   notifications Notification[]
   timeEntries   TimeEntry[]
   watchedTasks  WatchedTask[]
   teamMemberships TeamMembership[]
   ownedTeams    Team[]    @relation("TeamOwner")
   createdMeetings TeamMeeting[] @relation("UserCreatedMeetings")
-
   @@map("users")
 }
-
 model Task {
   id          String     @id @default(cuid())
   title       String
@@ -48,7 +45,6 @@ model Task {
   dueDate     DateTime?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
-
   // Relationships
   projectId   String?
   project     Project?   @relation(fields: [projectId], references: [id])
@@ -56,45 +52,35 @@ model Task {
   team        Team?       @relation(fields: [teamId], references: [id])
   creatorId   String
   creator     User       @relation(fields: [creatorId], references: [id])
-
   // Task management
   parentTaskId String?
   parentTask   Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id])
   subtasks     Task[]    @relation("TaskSubtasks")
-
   // Additional features
   taskTags     TaskTag[]
   comments     Comment[]
   attachments  Attachment[]
   timeEntries  TimeEntry[]
   watchers     WatchedTask[]
-
   // Workflow
   workflowId   String?
   workflow     Workflow? @relation(fields: [workflowId], references: [id])
-
   // SLA
   slaId        String?
   sla          SLA?      @relation(fields: [slaId], references: [id])
-
   // Assigned users
   assignees    TaskAssignee[]
-
   @@map("tasks")
 }
-
 model TaskAssignee {
   id     String @id @default(cuid())
   taskId String
   userId String
-
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
   @@unique([taskId, userId])
   @@map("task_assignees")
 }
-
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -134,10 +120,28 @@ model Organization {
   avatar      String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  members User[] @relation("OrganizationMembers")
-  projects Project[]
-  teams Team[]
+  
+  // Relationships
+  members     OrganizationMember[]
+  projects    Project[]
+  teams       Team[]
+  users       User[] @relation("OrganizationMemberships")
+  
   @@map("organizations")
+}
+model OrganizationMember {
+  id             String    @id @default(cuid())
+  userId         String
+  organizationId String
+  role           OrganizationRole @default(MEMBER)
+  joinedAt       DateTime  @default(now())
+  
+  // Relationships
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, organizationId])
+  @@map("organization_members")
 }
 model Team {
   id          String   @id @default(cuid())
@@ -150,12 +154,12 @@ model Team {
   
   // Relationships
   organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id])
+  organization   Organization?   @relation(fields: [organizationId], references: [id])
   ownerId       String
   owner         User          @relation("TeamOwner", fields: [ownerId], references: [id])
   members       TeamMembership[]
   projects      Project[]
-  tasks         Task[]        // Added this missing relation
+  tasks         Task[]        
   meetings      TeamMeeting[]
   @@map("teams")
 }
@@ -176,9 +180,7 @@ model TeamMembership {
   @@unique([userId, teamId])
   @@map("team_memberships")
 }
-
 // prisma/schema.prisma (add this to your schema)
-
 model TeamMeeting {
   id        String   @id @default(cuid())
   title     String
@@ -197,7 +199,6 @@ model TeamMeeting {
   
   @@map("team_meetings")
 }
-
 model Project {
   id          String   @id @default(cuid())
   name        String
@@ -210,7 +211,7 @@ model Project {
   
   // Relationships
   organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id])
+  organization   Organization?   @relation(fields: [organizationId], references: [id])
   teamId        String?
   team          Team?           @relation(fields: [teamId], references: [id])
   members       User[]          @relation("ProjectMembers")
@@ -327,7 +328,6 @@ model Notification {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@map("notifications")
 }
-
 // Enums
 enum UserRole {
   USER
@@ -335,36 +335,30 @@ enum UserRole {
   AGENT
   MANAGER
 }
-
 enum UserStatus {
   ACTIVE
   INACTIVE
   SUSPENDED
 }
-
 enum TeamStatus {
   ACTIVE
   ARCHIVED
 }
-
 enum TeamRole {
   OWNER
   ADMIN
   MEMBER
 }
-
 enum MembershipStatus {
   ACTIVE
   PENDING
   INACTIVE
 }
-
 enum ProjectStatus {
   ACTIVE
   ARCHIVED
   COMPLETED
 }
-
 enum TaskType {
   TASK
   BUG
@@ -372,7 +366,6 @@ enum TaskType {
   EPIC
   SUBTASK
 }
-
 enum TaskStatus {
   OPEN
   IN_PROGRESS
@@ -381,14 +374,12 @@ enum TaskStatus {
   CLOSED
   CANCELLED
 }
-
 enum TaskPriority {
   LOW
   MEDIUM
   HIGH
   URGENT
 }
-
 enum NotificationType {
   TASK_ASSIGNED
   TASK_UPDATED
@@ -397,4 +388,10 @@ enum NotificationType {
   MENTION
   TEAM_INVITATION
   SYSTEM
+}
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MANAGER
+  MEMBER
 }

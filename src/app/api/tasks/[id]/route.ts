@@ -8,22 +8,43 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    console.log("API: Starting task fetch");
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions)
     if (!session) {
-      console.log("API: Unauthorized access attempt");
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     
-    // Properly await the params promise
-    const resolvedParams = await params;
-    const taskId = resolvedParams.id;
-    
-    console.log("API: Fetching task with ID:", taskId);
+    const resolvedParams = await params
+    const taskId = resolvedParams.id
     
     if (!taskId) {
-      console.log("API: No task ID provided");
-      return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
+      return NextResponse.json({ error: "Task ID is required" }, { status: 400 })
+    }
+    
+    // Check if user has permission to view this task
+    const user = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true }
+    })
+    
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    
+    const canView = 
+      user.role === "ADMIN" || 
+      user.role === "MANAGER" || 
+      await db.task.findFirst({
+        where: {
+          id: taskId,
+          OR: [
+            { creatorId: session.user.id },
+            { assignees: { some: { userId: session.user.id } } }
+          ]
+        }
+      })
+    
+    if (!canView) {
+      return NextResponse.json({ error: "You don't have permission to view this task" }, { status: 403 })
     }
     
     const task = await db.task.findUnique({
@@ -59,9 +80,7 @@ export async function GET(
         },
         watchers: {
           include: {
-            user: {
-              select: { id: true, name: true, email: true }
-            }
+            user: { select: { id: true, name: true, email: true } }
           }
         },
         assignees: {
@@ -72,23 +91,22 @@ export async function GET(
           }
         }
       }
-    });
+    })
     
     if (!task) {
-      console.log("API: Task not found with ID:", taskId);
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+      return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
     
-    console.log("API: Successfully fetched task:", task.id);
-    return NextResponse.json(task);
+    return NextResponse.json(task)
   } catch (error) {
-    console.error("API Error fetching task:", error);
+    console.error("Error fetching task:", error)
     return NextResponse.json(
-      { error: "Internal server error", details: error instanceof Error ? error.message : "Unknown error" },
+      { error: "Internal server error" },
       { status: 500 }
-    );
+    )
   }
 }
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -115,22 +133,14 @@ export async function PUT(
       tags
     } = body
     
-    // Check if task exists
+    // Check if task exists and user has permission to edit it
     const existingTask = await db.task.findUnique({
       where: { id: resolvedParams.id },
       include: {
         creator: {
-          select: { id: true, name: true, email: true }
+          select: { id: true }
         },
-        assignees: { // Use assignees instead of assignee
-          include: {
-            user: { select: { id: true } }
-          }
-        },
-        project: {
-          select: { id: true, name: true, members: { select: { id: true } } }
-        },
-        watchers: {
+        assignees: {
           include: {
             user: { select: { id: true } }
           }
@@ -140,6 +150,26 @@ export async function PUT(
     
     if (!existingTask) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
+    }
+    
+    // Check if user has permission to edit this task
+    const user = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true }
+    })
+    
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    
+    const canEdit = 
+      user.role === "ADMIN" || 
+      user.role === "MANAGER" || 
+      existingTask.creatorId === session.user.id ||
+      existingTask.assignees.some(assignee => assignee.user.id === session.user.id)
+    
+    if (!canEdit) {
+      return NextResponse.json({ error: "You don't have permission to edit this task" }, { status: 403 })
     }
     
     // Update the task
@@ -169,7 +199,7 @@ export async function PUT(
             tag: true
           }
         },
-        assignees: { // Use assignees instead of assignee
+        assignees: {
           include: {
             user: {
               select: { id: true, name: true, email: true, avatar: true }
@@ -193,6 +223,14 @@ export async function PUT(
             taskId: resolvedParams.id,
             userId
           }))
+        })
+      } else {
+        // If no assignees are specified, assign the task to the creator
+        await db.taskAssignee.create({
+          data: {
+            taskId: resolvedParams.id,
+            userId: session.user.id
+          }
         })
       }
     }
@@ -332,93 +370,6 @@ export async function PUT(
       }
     }
     
-    // 3. Notify watchers about important changes
-    if (status !== undefined || assigneeIds !== undefined) {
-      const watcherIds = existingTask.watchers
-        .filter(watcher => watcher.user.id !== session.user.id)
-        .map(watcher => watcher.user.id)
-      
-      const notifyWatcherIds = watcherIds.filter(id =>
-        !task.assignees?.some(a => a.user.id === id) && 
-        id !== existingTask.creatorId
-      )
-      
-      for (const watcherId of notifyWatcherIds) {
-        notificationPromises.push(
-          db.notification.create({
-            data: {
-              title: "Task Updated",
-              message: `"${task.title}" has been updated`,
-              type: "TASK_UPDATED",
-              userId: watcherId
-            }
-          })
-        )
-      }
-    }
-    
-    // 4. Project change notification
-    if (projectId !== undefined && projectId !== existingTask.projectId) {
-      // If task is being added to a project
-      if (projectId) {
-        const project = await db.project.findUnique({
-          where: { id: projectId },
-          include: {
-            members: {
-              select: { id: true }
-            }
-          }
-        })
-        
-        if (project) {
-          for (const member of project.members) {
-            // Don't notify the person who made the change
-            if (member.id !== session.user.id) {
-              notificationPromises.push(
-                db.notification.create({
-                  data: {
-                    title: "Task Added to Project",
-                    message: `"${task.title}" has been added to the project "${project.name}"`,
-                    type: "TASK_UPDATED",
-                    userId: member.id
-                  }
-                })
-              )
-            }
-          }
-        }
-      }
-      // If task is being removed from a project
-      else if (existingTask.projectId) {
-        const oldProject = await db.project.findUnique({
-          where: { id: existingTask.projectId },
-          include: {
-            members: {
-              select: { id: true }
-            }
-          }
-        })
-        
-        if (oldProject) {
-          for (const member of oldProject.members) {
-            // Don't notify the person who made the change
-            if (member.id !== session.user.id) {
-              notificationPromises.push(
-                db.notification.create({
-                  data: {
-                    title: "Task Removed from Project",
-                    message: `"${task.title}" has been removed from the project "${oldProject.name}"`,
-                    type: "TASK_UPDATED",
-                    userId: member.id
-                  }
-                })
-              )
-            }
-          }
-        }
-      }
-    }
-    
     // Execute all notification creation promises
     await Promise.all(notificationPromises)
     
@@ -437,7 +388,7 @@ export async function PUT(
             tag: true
           }
         },
-        assignees: { // Use assignees instead of assignee
+        assignees: {
           include: {
             user: {
               select: { id: true, name: true, email: true, avatar: true }
@@ -456,62 +407,72 @@ export async function PUT(
     )
   }
 }
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
-
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    
     const resolvedParams = await params
-
-    // Check if task exists and get details for notifications
+    
+    // Check if task exists and user has permission to delete it
     const existingTask = await db.task.findUnique({
       where: { id: resolvedParams.id },
       include: {
         creator: {
-          select: { id: true, name: true, email: true }
+          select: { id: true }
         },
-        assignee: {
-          select: { id: true, name: true, email: true }
-        },
-        watchers: {
+        assignees: {
           include: {
             user: { select: { id: true } }
           }
         }
       }
     })
-
+    
     if (!existingTask) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
-
+    
+    // Check if user has permission to delete this task
+    const user = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true }
+    })
+    
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    
+    const canDelete = 
+      user.role === "ADMIN" || 
+      user.role === "MANAGER" || 
+      existingTask.creatorId === session.user.id
+    
+    if (!canDelete) {
+      return NextResponse.json({ error: "You don't have permission to delete this task" }, { status: 403 })
+    }
+    
     // Notify relevant people about task deletion
     const notifyIds = new Set<string>()
-
     // Notify creator if they're not the one who deleted it
     if (existingTask.creatorId !== session.user.id) {
       notifyIds.add(existingTask.creatorId)
     }
-
-    // Notify assignee if they're not the one who deleted it and not the creator
-    if (existingTask.assigneeId &&
-      existingTask.assigneeId !== session.user.id &&
-      existingTask.assigneeId !== existingTask.creatorId) {
-      notifyIds.add(existingTask.assigneeId)
-    }
-
-    // Notify watchers
-    existingTask.watchers.forEach(watcher => {
-      if (watcher.user.id !== session.user.id) {
-        notifyIds.add(watcher.user.id)
+    // Notify assignees if they're not the one who deleted it and not the creator
+    if (existingTask.assignees && existingTask.assignees.length > 0) {
+      for (const assignee of existingTask.assignees) {
+        if (assignee.userId !== session.user.id && assignee.userId !== existingTask.creatorId) {
+          notifyIds.add(assignee.userId)
+        }
       }
-    })
-
+    }
+    
     // Create notifications
     for (const userId of notifyIds) {
       await db.notification.create({
@@ -523,12 +484,12 @@ export async function DELETE(
         }
       })
     }
-
+    
     // Delete the task (cascade will handle related records)
     await db.task.delete({
       where: { id: resolvedParams.id }
     })
-
+    
     return NextResponse.json({ message: "Task deleted successfully" })
   } catch (error) {
     console.error("Error deleting task:", error)
