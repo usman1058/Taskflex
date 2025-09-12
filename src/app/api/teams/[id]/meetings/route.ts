@@ -12,167 +12,116 @@ export async function POST(
   try {
     const session = await getServerSession(authOptions)
     
-    if (!session || !session.user) {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    
+
     const { id } = await params
-    
+    const teamId = id
     const body = await request.json()
-    const { title, description, startTime, endTime } = body
-    
-    if (!title || !startTime || !endTime) {
-      return NextResponse.json(
-        { error: "Title, start time, and end time are required" },
-        { status: 400 }
-      )
-    }
-    
+
+    // Check if user is a member of the team and has permission to create meetings
     const team = await db.team.findUnique({
-      where: { id },
+      where: { id: teamId },
       include: {
         members: {
-          include: {
-            user: true
+          where: {
+            userId: session.user.id
           }
-        },
-        owner: {
-          select: { id: true, name: true, email: true }
         }
       }
     })
-    
-    if (!team) {
-      return NextResponse.json({ error: "Team not found" }, { status: 404 })
+
+    if (!team || (team.members.length === 0 && session.user.role !== "ADMIN")) {
+      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404 })
     }
-    
-    const currentUserMembership = team.members.find(m => m.userId === session.user.id)
-    
-    if (
-      team.ownerId !== session.user.id && 
-      (!currentUserMembership || currentUserMembership.role !== "ADMIN")
-    ) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+
+    // Check if user has permission to create meetings (OWNER or ADMIN)
+    const member = team.members[0]
+    if (member && member.role !== "OWNER" && member.role !== "ADMIN" && session.user.role !== "ADMIN") {
+      return NextResponse.json({ error: "Permission denied" }, { status: 403 })
     }
-    
-    let meetLink = null;
-    
-    // Create Google Meet event
-    try {
-      const auth = new google.auth.GoogleAuth({
-        keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE,
-        scopes: ['https://www.googleapis.com/auth/calendar'],
-      })
-      
-      const calendar = google.calendar({ version: "v3", auth })
-      
-      // Get all member emails, including the owner
-      const attendeeEmails = team.members
-        .filter(member => member.user && member.user.email)
-        .map(member => ({ email: member.user.email }))
-      
-      // Add owner if not already included
-      if (team.owner.email && !attendeeEmails.some(a => a.email === team.owner.email)) {
-        attendeeEmails.push({ email: team.owner.email })
-      }
-      
-      const event = {
-        summary: `${team.name}: ${title}`,
-        description: description || `Team meeting for ${team.name}`,
-        start: {
-          dateTime: new Date(startTime).toISOString(),
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        },
-        end: {
-          dateTime: new Date(endTime).toISOString(),
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        },
-        conferenceData: {
-          createRequest: {
-            requestId: `${id}-${Date.now()}`,
-            conferenceSolutionKey: {
-              type: "hangoutsMeet"
-            }
+
+    // Generate Google Meet link
+    // This requires Google Calendar API integration
+    // We assume you have set up OAuth2 for Google Calendar API
+
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    )
+
+    // Set credentials (you need to handle token refresh, this is simplified)
+    oauth2Client.setCredentials({
+      access_token: session.user.accessToken, // Assuming you store the access token in the session
+      refresh_token: session.user.refreshToken, // Assuming you store the refresh token
+    })
+
+    const calendar = google.calendar({ version: "v3", auth: oauth2Client })
+
+    const event = {
+      summary: body.title,
+      description: body.description,
+      start: {
+        dateTime: body.startTime,
+        timeZone: "UTC", // Adjust as needed
+      },
+      end: {
+        dateTime: body.endTime,
+        timeZone: "UTC", // Adjust as needed
+      },
+      conferenceData: {
+        createRequest: {
+          requestId: `meet-${Date.now()}`,
+          conferenceSolutionKey: {
+            type: "hangoutsMeet"
           }
-        },
-        attendees: attendeeEmails
+        }
       }
-      
-      const calendarEvent = await calendar.events.insert({
-        calendarId: 'primary',
-        resource: event,
-        conferenceDataVersion: 1,
-      })
-      
-      meetLink = calendarEvent.data.hangoutLink
-      console.log("Google Meet link created:", meetLink)
-    } catch (googleError) {
-      console.error("Error creating Google Meet event:", googleError)
-      // Continue without Google Meet link
     }
-    
-    // Create meeting in database
+
+    const calendarEvent = await calendar.events.insert({
+      calendarId: "primary",
+      resource: event,
+      conferenceDataVersion: 1
+    })
+
+    const meetLink = calendarEvent.data.hangoutLink
+
+    // Create the meeting in the database
     const meeting = await db.teamMeeting.create({
       data: {
-        title,
-        description,
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
+        title: body.title,
+        description: body.description,
+        startTime: new Date(body.startTime),
+        endTime: new Date(body.endTime),
         meetLink,
-        teamId: id,
-        createdBy: session.user.id
+        teamId,
+        creatorId: session.user.id
       },
       include: {
-        team: {
-          select: { name: true }
-        },
         creator: {
-          select: { id: true, name: true, email: true }
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true
+          }
         }
       }
     })
-    
-    console.log("Meeting created in database:", meeting)
-    
-    // Create notifications for all team members
-    for (const member of team.members) {
-      try {
-        if (member.user) {
-          await db.notification.create({
-            data: {
-              title: "Team Meeting Scheduled",
-              message: `A meeting "${title}" has been scheduled for ${new Date(startTime).toLocaleString()}${meetLink ? `\nGoogle Meet link: ${meetLink}` : ''}`,
-              type: "SYSTEM",
-              userId: member.userId
-            }
-          })
-          
-          // Send email notification
-          if (meetLink && member.user.email) {
-            await sendMeetingEmail({
-              to: member.user.email,
-              teamName: team.name,
-              meetingTitle: title,
-              startTime: new Date(startTime),
-              meetLink
-            })
-          }
-        }
-      } catch (notificationError) {
-        console.error("Error creating notification:", notificationError)
-        // Continue even if notification fails
-      }
-    }
-    
+
     return NextResponse.json(meeting, { status: 201 })
   } catch (error) {
-    console.error("Error scheduling meeting:", error)
+    console.error("Error creating meeting:", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
     )
   }
 }
+
 
 export async function GET(
   request: NextRequest,

@@ -1,7 +1,4 @@
 // app/profile/page.tsx
-
-// Replace the existing profile page with this updated version:
-
 "use client"
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
@@ -14,6 +11,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Switch } from "@/components/ui/switch"
+import { Separator } from "@/components/ui/separator"
 import { 
   User, 
   Mail, 
@@ -27,8 +26,18 @@ import {
   Settings,
   Bell,
   Shield,
-  AlertTriangle
+  AlertTriangle,
+  Upload,
+  Camera,
+  Key,
+  Smartphone,
+  Globe,
+  MapPin,
+  Trash2,
+  Plus,
+  ExternalLink
 } from "lucide-react"
+import { toast } from "sonner"
 
 interface UserProfile {
   id: string
@@ -39,25 +48,71 @@ interface UserProfile {
   status: string
   createdAt: string
   updatedAt: string
+  bio?: string
+  location?: string
+  website?: string
+  timezone?: string
+}
+
+interface UserStats {
+  totalTasks: number
+  completedTasks: number
+  inProgressTasks: number
+  overdueTasks: number
+  projectsCount: number
+  teamsCount: number
+}
+
+interface ActivityItem {
+  id: string
+  action: string
+  target: string
+  timestamp: string
+  project?: string
+}
+
+interface NotificationSetting {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+}
+
+interface ConnectedAccount {
+  id: string
+  provider: string
+  email: string
+  connected: boolean
 }
 
 export default function ProfilePage() {
-  const { data: session } = useSession()
+  const { data: session, update } = useSession()
   const [user, setUser] = useState<UserProfile | null>(null)
+  const [userStats, setUserStats] = useState<UserStats | null>(null)
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([])
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSetting[]>([])
+  const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([])
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [activeTab, setActiveTab] = useState("overview")
+  const [avatarUploading, setAvatarUploading] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     email: "",
-    bio: "Passionate developer and team player with 5+ years of experience in web development.",
-    location: "San Francisco, CA",
-    website: "https://example.com",
-    timezone: "UTC-8"
+    bio: "",
+    location: "",
+    website: "",
+    timezone: ""
   })
 
   useEffect(() => {
     fetchUserProfile()
+    fetchUserStats()
+    fetchRecentActivity()
+    fetchNotificationSettings()
+    fetchConnectedAccounts()
   }, [])
 
   const fetchUserProfile = async () => {
@@ -74,11 +129,14 @@ export default function ProfilePage() {
       
       const userData = await response.json()
       setUser(userData)
-      setFormData(prev => ({
-        ...prev,
-        name: userData.name,
-        email: userData.email
-      }))
+      setFormData({
+        name: userData.name || "",
+        email: userData.email || "",
+        bio: userData.bio || "",
+        location: userData.location || "",
+        website: userData.website || "",
+        timezone: userData.timezone || ""
+      })
     } catch (error) {
       console.error("Error fetching profile:", error)
       setError(error instanceof Error ? error.message : "Failed to load profile. Please try again.")
@@ -87,104 +145,272 @@ export default function ProfilePage() {
     }
   }
 
-  // Mock data for statistics
-  const stats = [
-    {
-      title: "Tasks Completed",
-      value: "47",
-      icon: CheckCircle,
-      color: "text-green-600",
-    },
-    {
-      title: "In Progress",
-      value: "8",
-      icon: Clock,
-      color: "text-blue-600",
-    },
-    {
-      title: "Projects",
-      value: "12",
-      icon: Target,
-      color: "text-purple-600",
-    },
-    {
-      title: "Team Members",
-      value: "24",
-      icon: User,
-      color: "text-orange-600",
-    },
-  ]
+  const fetchUserStats = async () => {
+    try {
+      const response = await fetch("/api/users/stats")
+      if (response.ok) {
+        const statsData = await response.json()
+        setUserStats(statsData)
+      }
+    } catch (error) {
+      console.error("Error fetching user stats:", error)
+    }
+  }
 
-  // Mock recent activity
-  const recentActivity = [
-    {
-      id: "1",
-      action: "completed task",
-      target: "Update user interface design",
-      time: "2 hours ago",
-    },
-    {
-      id: "2",
-      action: "commented on",
-      target: "API integration project",
-      time: "5 hours ago",
-    },
-    {
-      id: "3",
-      action: "created task",
-      target: "Database optimization",
-      time: "1 day ago",
-    },
-    {
-      id: "4",
-      action: "updated status",
-      target: "Mobile app development",
-      time: "2 days ago",
-    },
-  ]
+  const fetchRecentActivity = async () => {
+    try {
+      const response = await fetch("/api/users/activity")
+      if (response.ok) {
+        const activityData = await response.json()
+        setRecentActivity(activityData || [])
+      }
+    } catch (error) {
+      console.error("Error fetching recent activity:", error)
+    }
+  }
+
+  const fetchNotificationSettings = async () => {
+    try {
+      const response = await fetch("/api/users/notification-settings")
+      if (response.ok) {
+        const settingsData = await response.json()
+        setNotificationSettings(settingsData || [])
+      }
+    } catch (error) {
+      console.error("Error fetching notification settings:", error)
+    }
+  }
+
+  const fetchConnectedAccounts = async () => {
+    try {
+      const response = await fetch("/api/users/connected-accounts")
+      if (response.ok) {
+        const accountsData = await response.json()
+        setConnectedAccounts(accountsData || [])
+      }
+    } catch (error) {
+      console.error("Error fetching connected accounts:", error)
+    }
+  }
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  const handleSave = () => {
-    // In a real app, this would call an API
-    console.log("Saving profile:", formData)
-    setIsEditing(false)
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      
+      const response = await fetch("/api/users/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to update profile")
+      }
+      
+      const updatedUser = await response.json()
+      setUser(updatedUser)
+      
+      // Update session if name changed
+      if (session && session.user && formData.name !== session.user.name) {
+        await update({
+          ...session,
+          user: {
+            ...session.user,
+            name: formData.name,
+          }
+        })
+      }
+      
+      setIsEditing(false)
+      toast.success("Profile updated successfully")
+    } catch (error) {
+      console.error("Error updating profile:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update profile")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleCancel = () => {
     if (user) {
-      setFormData(prev => ({
-        ...prev,
-        name: user.name,
-        email: user.email
-      }))
+      setFormData({
+        name: user.name || "",
+        email: user.email || "",
+        bio: user.bio || "",
+        location: user.location || "",
+        website: user.website || "",
+        timezone: user.timezone || ""
+      })
     }
     setIsEditing(false)
   }
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    
+    try {
+      setAvatarUploading(true)
+      
+      const formData = new FormData()
+      formData.append("avatar", file)
+      
+      const response = await fetch("/api/users/avatar", {
+        method: "POST",
+        body: formData,
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to upload avatar")
+      }
+      
+      const data = await response.json()
+      
+      if (user) {
+        setUser({
+          ...user,
+          avatar: data.avatarUrl,
+        })
+      }
+      
+      // Update session if avatar changed
+      if (session && session.user) {
+        await update({
+          ...session,
+          user: {
+            ...session.user,
+            image: data.avatarUrl,
+          }
+        })
+      }
+      
+      toast.success("Avatar updated successfully")
+    } catch (error) {
+      console.error("Error uploading avatar:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to upload avatar")
+    } finally {
+      setAvatarUploading(false)
+    }
+  }
+
+  const handleNotificationSettingChange = async (id: string, enabled: boolean) => {
+    try {
+      const response = await fetch("/api/users/notification-settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id, enabled }),
+      })
+      
+      if (!response.ok) {
+        throw new Error("Failed to update notification settings")
+      }
+      
+      setNotificationSettings(prev => 
+        prev.map(setting => 
+          setting.id === id ? { ...setting, enabled } : setting
+        )
+      )
+      
+      toast.success("Notification settings updated")
+    } catch (error) {
+      console.error("Error updating notification settings:", error)
+      toast.error("Failed to update notification settings")
+    }
+  }
+
+  const handleDisconnectAccount = async (id: string) => {
+    try {
+      const response = await fetch(`/api/users/connected-accounts/${id}`, {
+        method: "DELETE",
+      })
+      
+      if (!response.ok) {
+        throw new Error("Failed to disconnect account")
+      }
+      
+      setConnectedAccounts(prev => 
+        prev.map(account => 
+          account.id === id ? { ...account, connected: false } : account
+        )
+      )
+      
+      toast.success("Account disconnected successfully")
+    } catch (error) {
+      console.error("Error disconnecting account:", error)
+      toast.error("Failed to disconnect account")
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "ACTIVE": return "bg-green-100 text-green-800"
-      case "INACTIVE": return "bg-gray-100 text-gray-800"
-      case "SUSPENDED": return "bg-red-100 text-red-800"
-      default: return "bg-gray-100 text-gray-800"
+      case "ACTIVE": return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
+      case "INACTIVE": return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
+      case "SUSPENDED": return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+      default: return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
     }
   }
 
   const getRoleColor = (role: string) => {
     switch (role) {
-      case "ADMIN": return "bg-red-100 text-red-800"
-      case "MANAGER": return "bg-purple-100 text-purple-800"
-      case "AGENT": return "bg-blue-100 text-blue-800"
-      default: return "bg-gray-100 text-gray-800"
+      case "ADMIN": return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+      case "MANAGER": return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300"
+      case "AGENT": return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+      default: return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
     }
   }
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString()
   }
+
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+    
+    if (diffInSeconds < 60) return "just now"
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`
+    if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)} days ago`
+    return formatDate(dateString)
+  }
+
+  const stats = [
+    {
+      title: "Tasks Completed",
+      value: userStats?.completedTasks?.toString() || "0",
+      icon: CheckCircle,
+      color: "text-green-600",
+    },
+    {
+      title: "In Progress",
+      value: userStats?.inProgressTasks?.toString() || "0",
+      icon: Clock,
+      color: "text-blue-600",
+    },
+    {
+      title: "Projects",
+      value: userStats?.projectsCount?.toString() || "0",
+      icon: Target,
+      color: "text-purple-600",
+    },
+    {
+      title: "Teams",
+      value: userStats?.teamsCount?.toString() || "0",
+      icon: User,
+      color: "text-orange-600",
+    },
+  ]
 
   if (loading) {
     return (
@@ -232,7 +458,7 @@ export default function ProfilePage() {
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Profile</h1>
             <p className="text-muted-foreground">
@@ -246,18 +472,20 @@ export default function ProfilePage() {
             </Button>
           )}
         </div>
+
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Main Content */}
           <div className="lg:col-span-2">
-            <Tabs defaultValue="overview" className="space-y-6">
-              <TabsList>
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="activity">Activity</TabsTrigger>
                 <TabsTrigger value="settings">Settings</TabsTrigger>
               </TabsList>
+              
               <TabsContent value="overview" className="space-y-6">
                 {/* Profile Information */}
-                <Card>
+                <Card className="border-none shadow-sm">
                   <CardHeader>
                     <CardTitle>Profile Information</CardTitle>
                     <CardDescription>
@@ -267,16 +495,35 @@ export default function ProfilePage() {
                   <CardContent>
                     <div className="space-y-6">
                       {/* Avatar Section */}
-                      <div className="flex items-center gap-4">
-                        <Avatar className="h-20 w-20">
-                          <AvatarImage src={user.avatar || ""} />
-                          <AvatarFallback className="text-lg">
-                            {user.name.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-lg font-semibold">{user.name}</h3>
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
+                        <div className="relative">
+                          <Avatar className="h-24 w-24">
+                            <AvatarImage src={user.avatar || ""} />
+                            <AvatarFallback className="text-2xl">
+                              {user.name.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <label htmlFor="avatar-upload" className="absolute bottom-0 right-0 bg-primary text-primary-foreground rounded-full p-1.5 cursor-pointer hover:bg-primary/90 transition-colors">
+                            <Camera className="h-4 w-4" />
+                            <span className="sr-only">Upload avatar</span>
+                          </label>
+                          <input
+                            id="avatar-upload"
+                            type="file"
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handleAvatarUpload}
+                            disabled={avatarUploading}
+                          />
+                          {avatarUploading && (
+                            <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
+                              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                            <h3 className="text-xl font-semibold">{user.name}</h3>
                             <Badge className={getStatusColor(user.status)}>
                               {user.status}
                             </Badge>
@@ -285,13 +532,18 @@ export default function ProfilePage() {
                             </Badge>
                           </div>
                           <p className="text-muted-foreground">{user.email}</p>
-                          <Button variant="outline" size="sm" className="mt-2">
-                            Change Avatar
-                          </Button>
+                          <div className="flex flex-wrap gap-2 pt-2">
+                            <Button variant="outline" size="sm" asChild>
+                              <label htmlFor="avatar-upload" className="cursor-pointer">
+                                Change Avatar
+                              </label>
+                            </Button>
+                          </div>
                         </div>
                       </div>
+                      
                       {/* Form Fields */}
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="name">Full Name</Label>
                           <Input
@@ -299,6 +551,7 @@ export default function ProfilePage() {
                             value={formData.name}
                             onChange={(e) => handleInputChange("name", e.target.value)}
                             disabled={!isEditing}
+                            className="mt-1"
                           />
                         </div>
                         <div>
@@ -309,9 +562,11 @@ export default function ProfilePage() {
                             value={formData.email}
                             onChange={(e) => handleInputChange("email", e.target.value)}
                             disabled={!isEditing}
+                            className="mt-1"
                           />
                         </div>
                       </div>
+                      
                       <div>
                         <Label htmlFor="bio">Bio</Label>
                         <Textarea
@@ -320,43 +575,72 @@ export default function ProfilePage() {
                           onChange={(e) => handleInputChange("bio", e.target.value)}
                           disabled={!isEditing}
                           rows={3}
+                          className="mt-1"
+                          placeholder="Tell us a bit about yourself..."
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="location">Location</Label>
-                          <Input
-                            id="location"
-                            value={formData.location}
-                            onChange={(e) => handleInputChange("location", e.target.value)}
-                            disabled={!isEditing}
-                          />
+                          <div className="relative mt-1">
+                            <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              id="location"
+                              value={formData.location}
+                              onChange={(e) => handleInputChange("location", e.target.value)}
+                              disabled={!isEditing}
+                              className="pl-10"
+                              placeholder="City, Country"
+                            />
+                          </div>
                         </div>
                         <div>
                           <Label htmlFor="website">Website</Label>
+                          <div className="relative mt-1">
+                            <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              id="website"
+                              type="url"
+                              value={formData.website}
+                              onChange={(e) => handleInputChange("website", e.target.value)}
+                              disabled={!isEditing}
+                              className="pl-10"
+                              placeholder="https://yourwebsite.com"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <Label htmlFor="timezone">Timezone</Label>
+                        <div className="relative mt-1">
+                          <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                           <Input
-                            id="website"
-                            type="url"
-                            value={formData.website}
-                            onChange={(e) => handleInputChange("website", e.target.value)}
+                            id="timezone"
+                            value={formData.timezone}
+                            onChange={(e) => handleInputChange("timezone", e.target.value)}
                             disabled={!isEditing}
+                            className="pl-10"
+                            placeholder="UTC-8"
                           />
                         </div>
                       </div>
-                      <div>
-                        <Label htmlFor="timezone">Timezone</Label>
-                        <Input
-                          id="timezone"
-                          value={formData.timezone}
-                          onChange={(e) => handleInputChange("timezone", e.target.value)}
-                          disabled={!isEditing}
-                        />
-                      </div>
+                      
                       {isEditing && (
-                        <div className="flex gap-2">
-                          <Button onClick={handleSave}>
-                            <Save className="mr-2 h-4 w-4" />
-                            Save Changes
+                        <div className="flex gap-2 pt-2">
+                          <Button onClick={handleSave} disabled={saving}>
+                            {saving ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                Saving...
+                              </>
+                            ) : (
+                              <>
+                                <Save className="mr-2 h-4 w-4" />
+                                Save Changes
+                              </>
+                            )}
                           </Button>
                           <Button variant="outline" onClick={handleCancel}>
                             <X className="mr-2 h-4 w-4" />
@@ -367,10 +651,11 @@ export default function ProfilePage() {
                     </div>
                   </CardContent>
                 </Card>
+                
                 {/* Stats */}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   {stats.map((stat) => (
-                    <Card key={stat.title}>
+                    <Card key={stat.title} className="border-none shadow-sm">
                       <CardContent className="p-6">
                         <div className="flex items-center justify-between">
                           <div>
@@ -386,8 +671,9 @@ export default function ProfilePage() {
                   ))}
                 </div>
               </TabsContent>
+              
               <TabsContent value="activity" className="space-y-6">
-                <Card>
+                <Card className="border-none shadow-sm">
                   <CardHeader>
                     <CardTitle>Recent Activity</CardTitle>
                     <CardDescription>
@@ -396,23 +682,36 @@ export default function ProfilePage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {recentActivity.map((activity) => (
-                        <div key={activity.id} className="flex items-center gap-3 p-3 border rounded-lg">
-                          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                          <div className="flex-1">
-                            <p className="text-sm">
-                              <span className="font-medium">{activity.action}</span> {activity.target}
-                            </p>
-                            <p className="text-xs text-muted-foreground">{activity.time}</p>
+                      {recentActivity.length > 0 ? (
+                        recentActivity.map((activity) => (
+                          <div key={activity.id} className="flex items-start gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                            <div className="flex-1">
+                              <p className="text-sm">
+                                <span className="font-medium">{activity.action}</span> {activity.target}
+                                {activity.project && (
+                                  <span className="text-muted-foreground"> in {activity.project}</span>
+                                )}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {formatRelativeTime(activity.timestamp)}
+                              </p>
+                            </div>
                           </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Clock className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                          <p>No recent activity</p>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </CardContent>
                 </Card>
               </TabsContent>
+              
               <TabsContent value="settings" className="space-y-6">
-                <Card>
+                <Card className="border-none shadow-sm">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Settings className="h-5 w-5" />
@@ -424,32 +723,39 @@ export default function ProfilePage() {
                   </CardHeader>
                   <CardContent className="space-y-6">
                     <div className="space-y-4">
+                      <h3 className="text-lg font-medium">Notification Settings</h3>
+                      {notificationSettings.map((setting) => (
+                        <div key={setting.id} className="flex items-center justify-between p-4 border rounded-lg">
+                          <div className="space-y-1">
+                            <p className="font-medium">{setting.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {setting.description}
+                            </p>
+                          </div>
+                          <Switch
+                            checked={setting.enabled}
+                            onCheckedChange={(checked) => handleNotificationSettingChange(setting.id, checked)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <Separator />
+                    
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-medium">Security</h3>
                       <div className="flex items-center justify-between p-4 border rounded-lg">
                         <div className="flex items-center gap-3">
-                          <Mail className="h-5 w-5 text-muted-foreground" />
+                          <Key className="h-5 w-5 text-muted-foreground" />
                           <div>
-                            <p className="font-medium">Email Notifications</p>
+                            <p className="font-medium">Change Password</p>
                             <p className="text-sm text-muted-foreground">
-                              Receive email updates about your tasks
+                              Update your account password
                             </p>
                           </div>
                         </div>
                         <Button variant="outline" size="sm">
-                          Configure
-                        </Button>
-                      </div>
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Bell className="h-5 w-5 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">Push Notifications</p>
-                            <p className="text-sm text-muted-foreground">
-                              Get real-time notifications in your browser
-                            </p>
-                          </div>
-                        </div>
-                        <Button variant="outline" size="sm">
-                          Configure
+                          Change
                         </Button>
                       </div>
                       <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -467,15 +773,48 @@ export default function ProfilePage() {
                         </Button>
                       </div>
                     </div>
+                    
+                    <Separator />
+                    
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-medium">Connected Accounts</h3>
+                      {connectedAccounts.map((account) => (
+                        <div key={account.id} className="flex items-center justify-between p-4 border rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                              <span className="font-medium">{account.provider.charAt(0)}</span>
+                            </div>
+                            <div>
+                              <p className="font-medium">{account.provider}</p>
+                              <p className="text-sm text-muted-foreground">{account.email}</p>
+                            </div>
+                          </div>
+                          {account.connected ? (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => handleDisconnectAccount(account.id)}
+                            >
+                              Disconnect
+                            </Button>
+                          ) : (
+                            <Button variant="outline" size="sm">
+                              Connect
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
             </Tabs>
           </div>
+          
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Quick Info */}
-            <Card>
+            <Card className="border-none shadow-sm">
               <CardHeader>
                 <CardTitle>Quick Info</CardTitle>
               </CardHeader>
@@ -494,8 +833,9 @@ export default function ProfilePage() {
                 </div>
               </CardContent>
             </Card>
+            
             {/* Skills */}
-            <Card>
+            <Card className="border-none shadow-sm">
               <CardHeader>
                 <CardTitle>Skills</CardTitle>
               </CardHeader>
@@ -507,33 +847,33 @@ export default function ProfilePage() {
                   <Badge variant="secondary">Python</Badge>
                   <Badge variant="secondary">UI/UX Design</Badge>
                   <Badge variant="secondary">Project Management</Badge>
+                  <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
+                    <Plus className="h-3 w-3 mr-1" />
+                    Add
+                  </Button>
                 </div>
               </CardContent>
             </Card>
+            
             {/* Connected Accounts */}
-            <Card>
+            <Card className="border-none shadow-sm">
               <CardHeader>
                 <CardTitle>Connected Accounts</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-gray-800 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">G</span>
+                {connectedAccounts.map((account) => (
+                  <div key={account.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                        <span className="text-xs font-medium">{account.provider.charAt(0)}</span>
+                      </div>
+                      <span className="text-sm">{account.provider}</span>
                     </div>
-                    <span className="text-sm">GitHub</span>
+                    <Badge variant={account.connected ? "default" : "secondary"}>
+                      {account.connected ? "Connected" : "Not Connected"}
+                    </Badge>
                   </div>
-                  <Badge variant="secondary">Connected</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">G</span>
-                    </div>
-                    <span className="text-sm">Google</span>
-                  </div>
-                  <Badge variant="secondary">Connected</Badge>
-                </div>
+                ))}
               </CardContent>
             </Card>
           </div>

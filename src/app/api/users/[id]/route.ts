@@ -34,6 +34,10 @@ export async function GET(
         avatar: true,
         role: true,
         status: true,
+        bio: true,
+        location: true,
+        website: true,
+        timezone: true,
         createdAt: true,
         updatedAt: true,
         _count: {
@@ -82,7 +86,7 @@ export async function PUT(
     }
     
     const body = await request.json()
-    const { name, role, status } = body
+    const { name, role, status, bio, location, website, timezone } = body
     
     if (!name || !role || !status) {
       return NextResponse.json(
@@ -106,7 +110,11 @@ export async function PUT(
       data: {
         name,
         role,
-        status
+        status,
+        bio,
+        location,
+        website,
+        timezone
       },
       select: {
         id: true,
@@ -114,6 +122,10 @@ export async function PUT(
         email: true,
         role: true,
         status: true,
+        bio: true,
+        location: true,
+        website: true,
+        timezone: true,
         updatedAt: true
       }
     })

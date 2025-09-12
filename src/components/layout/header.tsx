@@ -11,30 +11,147 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { NotificationBell } from "./notification-bell"
-import { LogOut, User, Settings } from "lucide-react"
+import { LogOut, User, Settings, Menu, Search, HelpCircle, Plus, ChevronDown, ArrowLeft, CheckSquare, FolderOpen, Users } from "lucide-react"
+import { useState } from "react"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { OrganizationSwitcher } from "./organization-switcher"
 
-export function Header() {
+interface HeaderProps {
+  onMobileMenuToggle: () => void
+  currentOrganization?: any
+  isOrganizationPage?: boolean
+}
+
+export function Header({ onMobileMenuToggle, currentOrganization, isOrganizationPage }: HeaderProps) {
   const { data: session } = useSession()
-
+  const [searchOpen, setSearchOpen] = useState(false)
+  
   return (
-    <header className="border-b bg-background">
+    <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-40 shadow-sm">
       <div className="container mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <Link href="/" className="font-bold text-xl">
-            Task Management
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="md:hidden text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200" 
+            onClick={onMobileMenuToggle}
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+          
+          {isOrganizationPage && currentOrganization && (
+            <div className="flex items-center space-x-2">
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/organizations">
+                  <ArrowLeft className="h-4 w-4" />
+                </Link>
+              </Button>
+              <span className="text-sm font-medium hidden sm:block">
+                {currentOrganization.name}
+              </span>
+            </div>
+          )}
+          
+          <Link href="/" className="font-bold text-xl hidden md:block bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            TaskFlow Pro
           </Link>
+          <Link href="/" className="font-bold text-xl md:hidden bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            TF
+          </Link>
+          
+          {/* Organization Switcher */}
+          {session && !isOrganizationPage && (
+            <OrganizationSwitcher />
+          )}
         </div>
         
-        <div className="flex items-center space-x-4">
+        {/* Search Bar */}
+        <div className="flex-1 max-w-md mx-4 hidden md:block">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="Search tasks, projects, or people..."
+              className="pl-10 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 focus-visible:ring-blue-500"
+            />
+          </div>
+        </div>
+        
+        <div className="flex items-center space-x-3">
+          {/* Mobile Search */}
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="md:hidden text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+            onClick={() => setSearchOpen(!searchOpen)}
+          >
+            <Search className="h-5 w-5" />
+          </Button>
+          
+          {/* Create New Button */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" className="hidden sm:flex">
+                <Plus className="h-4 w-4 mr-1" />
+                Create
+                <ChevronDown className="h-3 w-3 ml-1" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-0" align="end">
+              <div className="grid grid-cols-1 gap-1 p-2">
+                <Button variant="ghost" className="justify-start" asChild>
+                  <Link href="/tasks/create">
+                    <CheckSquare className="h-4 w-4 mr-2" />
+                    New Task
+                  </Link>
+                </Button>
+                <Button variant="ghost" className="justify-start" asChild>
+                  <Link href="/projects/create">
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                    New Project
+                  </Link>
+                </Button>
+                {isOrganizationPage && (
+                  <Button variant="ghost" className="justify-start" asChild>
+                    <Link href={`/organizations/${currentOrganization?.id}/teams/create`}>
+                      <Users className="h-4 w-4 mr-2" />
+                      New Team
+                    </Link>
+                  </Button>
+                )}
+                {!isOrganizationPage && (
+                  <Button variant="ghost" className="justify-start" asChild>
+                    <Link href="/teams/create">
+                      <Users className="h-4 w-4 mr-2" />
+                      New Team
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+          
+          {/* Notifications */}
           <NotificationBell />
           
+          {/* Help */}
+          <Button variant="ghost" size="sm" className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+            <HelpCircle className="h-5 w-5" />
+          </Button>
+          
+          {/* User Menu */}
           {session && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
                     <AvatarImage src={session.user.avatar || ""} alt={session.user.name || ""} />
-                    <AvatarFallback>
+                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white">
                       {session.user.name?.charAt(0) || session.user.email?.charAt(0) || "U"}
                     </AvatarFallback>
                   </Avatar>
@@ -51,6 +168,9 @@ export function Header() {
                         {session.user.email}
                       </p>
                     )}
+                    <Badge variant="outline" className="w-fit mt-1">
+                      {session.user.role || "User"}
+                    </Badge>
                   </div>
                 </div>
                 <DropdownMenuSeparator />
@@ -76,6 +196,20 @@ export function Header() {
           )}
         </div>
       </div>
+      
+      {/* Mobile Search Bar */}
+      {searchOpen && (
+        <div className="md:hidden px-4 pb-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="Search tasks, projects, or people..."
+              className="pl-10 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 focus-visible:ring-blue-500"
+              autoFocus
+            />
+          </div>
+        </div>
+      )}
     </header>
   )
 }

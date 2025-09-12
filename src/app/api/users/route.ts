@@ -60,6 +60,10 @@ export async function GET(request: NextRequest) {
         avatar: true,
         role: true,
         status: true,
+        bio: true,
+        location: true,
+        website: true,
+        timezone: true,
         createdAt: true,
         updatedAt: true,
         _count: {
@@ -103,7 +107,7 @@ export async function POST(request: NextRequest) {
     }
     
     const body = await request.json()
-    const { name, email, role } = body
+    const { name, email, role, bio, location, website, timezone } = body
     
     if (!name || !email || !role) {
       return NextResponse.json(
@@ -130,7 +134,11 @@ export async function POST(request: NextRequest) {
         name,
         email,
         role,
-        status: "ACTIVE"
+        status: "ACTIVE",
+        bio,
+        location,
+        website,
+        timezone
       },
       select: {
         id: true,
@@ -138,6 +146,10 @@ export async function POST(request: NextRequest) {
         email: true,
         role: true,
         status: true,
+        bio: true,
+        location: true,
+        website: true,
+        timezone: true,
         createdAt: true
       }
     })

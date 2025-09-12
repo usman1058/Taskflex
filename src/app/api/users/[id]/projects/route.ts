@@ -38,7 +38,19 @@ export async function GET(
         id: true,
         name: true,
         key: true,
-        status: true
+        status: true,
+        description: true,
+        avatar: true,
+        createdAt: true,
+        updatedAt: true,
+        organizationId: true,
+        teamId: true,
+        _count: {
+          select: {
+            tasks: true,
+            members: true
+          }
+        }
       },
       orderBy: { createdAt: "desc" }
     })

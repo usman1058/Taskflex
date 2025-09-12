@@ -7,33 +7,43 @@ import { MainLayout } from "@/components/layout/main-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  ArrowLeft,
-  Edit,
-  Trash2,
-  Save,
-  X,
-  Users,
-  FolderOpen,
+import { Input } from "@/components/ui/input"
+import { 
+  ArrowLeft, 
+  Users, 
+  FolderOpen, 
+  Users2, 
   Calendar,
-  Settings,
-  Users2,
+  TrendingUp,
+  Activity,
+  CheckCircle,
+  Clock,
   AlertTriangle,
-  Loader2,
   Plus,
   UserPlus,
+  Search,
+  Filter,
+  MoreHorizontal,
+  Settings,
   Mail,
-  Check,
-  Activity
+  Phone,
+  MapPin,
+  Calendar as CalendarIcon
 } from "lucide-react"
 import Link from "next/link"
+import { UserCard } from "@/components/user/user-card"
+import { UserStats } from "@/components/user/user-stats"
+import { UserActivity } from "@/components/user/user-activity"
+import { UserTeams } from "@/components/user/user-teams"
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger,
+  DropdownMenuSeparator
+} from "@/components/ui/dropdown-menu"
 
 interface OrganizationMember {
   id: string
@@ -42,6 +52,11 @@ interface OrganizationMember {
     name: string
     email: string
     avatar?: string
+    role: string
+    status: string
+    bio?: string
+    location?: string
+    createdAt: string
   }
   role: string
   joinedAt: string
@@ -51,7 +66,6 @@ interface OrganizationProject {
   id: string
   name: string
   key: string
-  description: string | null
   status: string
   createdAt: string
   _count: {
@@ -63,7 +77,6 @@ interface OrganizationProject {
 interface OrganizationTeam {
   id: string
   name: string
-  description: string | null
   status: string
   createdAt: string
   _count: {
@@ -76,6 +89,7 @@ interface Organization {
   id: string
   name: string
   description: string | null
+  avatar: string | null
   createdAt: string
   updatedAt: string
   members: OrganizationMember[]
@@ -88,44 +102,58 @@ interface Organization {
   }
 }
 
-export default function OrganizationDetailPage() {
+interface ActivityItem {
+  id: string
+  action: string
+  description: string
+  timestamp: string
+  user: {
+    name: string
+    avatar?: string
+  }
+}
+
+interface TaskStats {
+  total: number
+  completed: number
+  inProgress: number
+  overdue: number
+}
+
+export default function OrganizationDashboardPage() {
   const { data: session } = useSession()
   const router = useRouter()
   const params = useParams()
   const id = params.id as string
-
+  
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false)
-  const [addMemberDialogOpen, setAddMemberDialogOpen] = useState(false)
-  const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteSuccess, setInviteSuccess] = useState(false)
-  const [isInviting, setIsInviting] = useState(false)
-  const [allUsers, setAllUsers] = useState<any[]>([])
-  const [selectedUserId, setSelectedUserId] = useState("")
-  const [selectedRole, setSelectedRole] = useState("MEMBER")
-  const [formData, setFormData] = useState({
-    name: "",
-    description: ""
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([])
+  const [taskStats, setTaskStats] = useState<TaskStats>({
+    total: 0,
+    completed: 0,
+    inProgress: 0,
+    overdue: 0
   })
-
+  const [searchTerm, setSearchTerm] = useState("")
+  const [selectedMember, setSelectedMember] = useState<string | null>(null)
+  
   useEffect(() => {
     if (id) {
       fetchOrganization()
-      fetchUsers()
+      fetchActivity()
+      fetchTaskStats()
     }
   }, [id])
-
+  
   const fetchOrganization = async () => {
     try {
       setLoading(true)
       setError(null)
-
+      
       const response = await fetch(`/api/organizations/${id}`)
-
+      
       if (!response.ok) {
         if (response.status === 404) {
           setError("Organization not found")
@@ -137,13 +165,9 @@ export default function OrganizationDetailPage() {
         }
         return
       }
-
+      
       const organizationData = await response.json()
       setOrganization(organizationData)
-      setFormData({
-        name: organizationData.name,
-        description: organizationData.description || ""
-      })
     } catch (error) {
       console.error("Error fetching organization:", error)
       setError(error instanceof Error ? error.message : "Failed to load organization. Please try again.")
@@ -151,203 +175,78 @@ export default function OrganizationDetailPage() {
       setLoading(false)
     }
   }
-
-  const fetchUsers = async () => {
+  
+  const fetchActivity = async () => {
     try {
-      const response = await fetch(`/api/organizations/${id}/users`)
-      if (response.ok) {
-        const usersData = await response.json()
-        setAllUsers(usersData)
-      }
-    } catch (error) {
-      console.error("Error fetching users:", error)
-    }
-  }
-
-  const handleEdit = () => {
-    setIsEditing(true)
-  }
-
-  const handleCancel = () => {
-    setIsEditing(false)
-    if (organization) {
-      setFormData({
-        name: organization.name,
-        description: organization.description || ""
-      })
-    }
-  }
-
-  const handleSave = async () => {
-    try {
-      const response = await fetch(`/api/organizations/${id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json"
+      // Mock activity data for now
+      const mockActivity: ActivityItem[] = [
+        {
+          id: "1",
+          action: "created",
+          description: "New project created",
+          timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+          user: {
+            name: "You",
+            avatar: session?.user?.avatar
+          }
         },
-        body: JSON.stringify(formData)
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to update organization")
-      }
-
-      const updatedOrganization = await response.json()
-      setOrganization(updatedOrganization)
-      setIsEditing(false)
-    } catch (error) {
-      console.error("Error updating organization:", error)
-      setError(error instanceof Error ? error.message : "Failed to update organization")
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this organization? This action cannot be undone.")) {
-      return
-    }
-
-    try {
-      setIsDeleting(true)
-      const response = await fetch(`/api/organizations/${id}`, {
-        method: "DELETE"
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to delete organization")
-      }
-
-      router.push("/organizations")
-    } catch (error) {
-      console.error("Error deleting organization:", error)
-      setError(error instanceof Error ? error.message : "Failed to delete organization")
-      setIsDeleting(false)
-    }
-  }
-
-  const handleInviteMember = async () => {
-    if (!inviteEmail) return
-
-    try {
-      setIsInviting(true)
-      const response = await fetch(`/api/organizations/${id}/invite`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
+        {
+          id: "2",
+          action: "updated",
+          description: "Organization settings updated",
+          timestamp: new Date(Date.now() - 43200000).toISOString(), // 12 hours ago
+          user: {
+            name: "You",
+            avatar: session?.user?.avatar
+          }
         },
-        body: JSON.stringify({ email: inviteEmail })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to invite member")
-      }
-
-      const updatedOrganization = await response.json()
-      setOrganization(updatedOrganization)
-      setInviteSuccess(true)
-      setInviteEmail("")
-
-      // Close dialog after success
-      setTimeout(() => {
-        setInviteDialogOpen(false)
-        setInviteSuccess(false)
-      }, 2000)
+        {
+          id: "3",
+          action: "joined",
+          description: "New member joined organization",
+          timestamp: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
+          user: {
+            name: "John Doe",
+            avatar: ""
+          }
+        }
+      ]
+      setRecentActivity(mockActivity)
     } catch (error) {
-      console.error("Error inviting member:", error)
-      setError(error instanceof Error ? error.message : "Failed to invite member")
-    } finally {
-      setIsInviting(false)
+      console.error("Error fetching activity:", error)
     }
   }
-
-  const handleAddMember = async () => {
-    if (!selectedUserId) return
-
+  
+  const fetchTaskStats = async () => {
     try {
-      setIsInviting(true)
-      const response = await fetch(`/api/organizations/${id}/members`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ userId: selectedUserId, role: selectedRole })
+      // Mock task stats for now
+      setTaskStats({
+        total: 42,
+        completed: 24,
+        inProgress: 12,
+        overdue: 6
       })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to add member")
-      }
-
-      const updatedOrganization = await response.json()
-      setOrganization(updatedOrganization)
-      setAddMemberDialogOpen(false)
-      setSelectedUserId("")
-      setSelectedRole("MEMBER")
     } catch (error) {
-      console.error("Error adding member:", error)
-      setError(error instanceof Error ? error.message : "Failed to add member")
-    } finally {
-      setIsInviting(false)
+      console.error("Error fetching task stats:", error)
     }
   }
-
-  const handleUpdateMemberRole = async (userId: string, role: string) => {
-    try {
-      const response = await fetch(`/api/organizations/${id}/members`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ userId, role })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to update member role")
-      }
-
-      const updatedOrganization = await response.json()
-      setOrganization(updatedOrganization)
-    } catch (error) {
-      console.error("Error updating member role:", error)
-      setError(error instanceof Error ? error.message : "Failed to update member role")
-    }
-  }
-
-  const handleRemoveMember = async (userId: string) => {
-    if (!confirm("Are you sure you want to remove this member from the organization?")) {
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/organizations/${id}/members?userId=${userId}`, {
-        method: "DELETE"
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to remove member")
-      }
-
-      // Refresh organization data
-      fetchOrganization()
-    } catch (error) {
-      console.error("Error removing member:", error)
-      setError(error instanceof Error ? error.message : "Failed to remove member")
-    }
-  }
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
-  }
-
+  
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString()
   }
-
+  
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+    
+    if (diffInSeconds < 60) return "just now"
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`
+    if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)} days ago`
+    return formatDate(dateString)
+  }
+  
   const getStatusColor = (status: string) => {
     switch (status) {
       case "ACTIVE": return "bg-green-100 text-green-800"
@@ -356,7 +255,7 @@ export default function OrganizationDetailPage() {
       default: return "bg-gray-100 text-gray-800"
     }
   }
-
+  
   const getRoleColor = (role: string) => {
     switch (role) {
       case "OWNER": return "bg-purple-100 text-purple-800"
@@ -366,31 +265,37 @@ export default function OrganizationDetailPage() {
       default: return "bg-gray-100 text-gray-800"
     }
   }
-
-  // Get current user's role in this organization
+  
   const getUserRole = () => {
     if (!organization || !session?.user?.id) return null
-
+    
     const member = organization.members.find(m => m.user.id === session.user.id)
     return member ? member.role : null
   }
-
+  
   const userRole = getUserRole()
   const isAdmin = session?.user?.role === "ADMIN"
-  const canEdit = isAdmin || (userRole && (userRole === "OWNER" || userRole === "ADMIN"))
-  const canDelete = isAdmin || (userRole === "OWNER")
-  const canManageMembers = canEdit
-
+  const canCreate = isAdmin || (userRole && (userRole === "OWNER" || userRole === "ADMIN" || userRole === "MANAGER"))
+  
+  const filteredMembers = organization?.members.filter(member => 
+    member.user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    member.user.email.toLowerCase().includes(searchTerm.toLowerCase())
+  ) || []
+  
+  const selectedMemberData = selectedMember 
+    ? organization?.members.find(m => m.id === selectedMember)
+    : null
+  
   if (loading) {
     return (
       <MainLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin" />
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
         </div>
       </MainLayout>
     )
   }
-
+  
   if (error || !organization) {
     return (
       <MainLayout>
@@ -410,10 +315,13 @@ export default function OrganizationDetailPage() {
       </MainLayout>
     )
   }
-
+  
+  const completionPercentage = Math.round((taskStats.completed / taskStats.total) * 100)
+  
   return (
     <MainLayout>
       <div className="space-y-6">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" asChild>
@@ -421,307 +329,112 @@ export default function OrganizationDetailPage() {
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">{organization.name}</h1>
-              <p className="text-muted-foreground">
-                Created {formatDate(organization.createdAt)}
-                {userRole && (
-                  <Badge className={`ml-2 ${getRoleColor(userRole)}`}>
-                    {userRole}
-                  </Badge>
-                )}
-              </p>
+            <div className="flex items-center gap-3">
+              {organization.avatar && (
+                <Avatar className="h-10 w-10">
+                  <AvatarImage src={organization.avatar} />
+                  <AvatarFallback>
+                    {organization.name.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+              )}
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight">{organization.name}</h1>
+                <p className="text-muted-foreground">
+                  Organization Dashboard
+                </p>
+              </div>
             </div>
           </div>
-
-          {canEdit && (
+          
+          {canCreate && (
             <div className="flex gap-2">
-              {isEditing ? (
-                <>
-                  <Button onClick={handleSave} disabled={isDeleting}>
-                    <Save className="mr-2 h-4 w-4" />
-                    Save
-                  </Button>
-                  <Button variant="outline" onClick={handleCancel} disabled={isDeleting}>
-                    <X className="mr-2 h-4 w-4" />
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button variant="outline" onClick={handleEdit}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    Edit
-                  </Button>
-
-                  {canManageMembers && (
-                    <>
-                      <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button variant="outline">
-                            <Mail className="mr-2 h-4 w-4" />
-                            Invite
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-md">
-                          <DialogHeader>
-                            <DialogTitle>Invite Member</DialogTitle>
-                            <DialogDescription>
-                              Enter the email address of the user you want to invite to this organization.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="flex items-center space-x-2">
-                            <div className="grid flex-1 gap-2">
-                              <Label htmlFor="email">Email</Label>
-                              <Input
-                                id="email"
-                                type="email"
-                                placeholder="user@example.com"
-                                value={inviteEmail}
-                                onChange={(e) => setInviteEmail(e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          <DialogFooter>
-                            <Button onClick={handleInviteMember} disabled={isInviting || !inviteEmail}>
-                              {isInviting ? (
-                                <>
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Inviting...
-                                </>
-                              ) : (
-                                <>
-                                  <Mail className="mr-2 h-4 w-4" />
-                                  Send Invitation
-                                </>
-                              )}
-                            </Button>
-                          </DialogFooter>
-                          {inviteSuccess && (
-                            <div className="flex items-center justify-center p-4 text-green-600">
-                              <Check className="mr-2 h-4 w-4" />
-                              Invitation sent successfully!
-                            </div>
-                          )}
-                        </DialogContent>
-                      </Dialog>
-
-                      <Dialog open={addMemberDialogOpen} onOpenChange={setAddMemberDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button variant="outline">
-                            <UserPlus className="mr-2 h-4 w-4" />
-                            Add Member
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-md">
-                          <DialogHeader>
-                            <DialogTitle>Add Member</DialogTitle>
-                            <DialogDescription>
-                              Add an existing user to this organization.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="grid gap-4 py-4">
-                            <div className="grid grid-cols-4 items-center gap-4">
-                              <Label htmlFor="user" className="text-right">
-                                User
-                              </Label>
-                              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select a user" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {allUsers.map((user) => (
-                                    <SelectItem key={user.id} value={user.id}>
-                                      {user.name} ({user.email})
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="grid grid-cols-4 items-center gap-4">
-                              <Label htmlFor="role" className="text-right">
-                                Role
-                              </Label>
-                              <Select value={selectedRole} onValueChange={setSelectedRole}>
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="OWNER">Owner</SelectItem>
-                                  <SelectItem value="ADMIN">Admin</SelectItem>
-                                  <SelectItem value="MANAGER">Manager</SelectItem>
-                                  <SelectItem value="MEMBER">Member</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                          <DialogFooter>
-                            <Button onClick={handleAddMember} disabled={isInviting || !selectedUserId}>
-                              {isInviting ? (
-                                <>
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Adding...
-                                </>
-                              ) : (
-                                <>
-                                  <UserPlus className="mr-2 h-4 w-4" />
-                                  Add Member
-                                </>
-                              )}
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </>
-                  )}
-
-                  {canDelete && (
-                    <Button
-                      variant="destructive"
-                      onClick={handleDelete}
-                      disabled={isDeleting}
-                    >
-                      {isDeleting ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Deleting...
-                        </>
-                      ) : (
-                        <>
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </>
-              )}
+              <Button asChild>
+                <Link href={`/projects/create?organizationId=${organization.id}`}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Project
+                </Link>
+              </Button>
+              <Button asChild>
+                <Link href={`/teams/create?organizationId=${organization.id}`}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Team
+                </Link>
+              </Button>
             </div>
           )}
         </div>
-
+        
+        {/* Stats Cards */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card className="border-none shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total Projects</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{organization._count.projects}</div>
+              <p className="text-xs text-muted-foreground">
+                +2 from last month
+              </p>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-none shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total Teams</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{organization._count.teams}</div>
+              <p className="text-xs text-muted-foreground">
+                +1 from last month
+              </p>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-none shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total Members</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{organization._count.members}</div>
+              <p className="text-xs text-muted-foreground">
+                +3 from last month
+              </p>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-none shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Task Completion</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{completionPercentage}%</div>
+              <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                <div 
+                  className="bg-green-600 h-2 rounded-full" 
+                  style={{ width: `${completionPercentage}%` }}
+                ></div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        
+        {/* Main Content */}
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
-            <Tabs defaultValue="overview" className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
+            <Tabs defaultValue="projects" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="projects">Projects</TabsTrigger>
                 <TabsTrigger value="teams">Teams</TabsTrigger>
-                <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+                <TabsTrigger value="activity">Activity</TabsTrigger>
               </TabsList>
-
-              <TabsContent value="overview" className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Settings className="h-5 w-5" />
-                      Organization Information
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {isEditing ? (
-                      <div className="space-y-4">
-                        <div>
-                          <label className="text-sm font-medium">Organization Name</label>
-                          <Input
-                            name="name"
-                            value={formData.name}
-                            onChange={handleInputChange}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium">Description</label>
-                          <Textarea
-                            name="description"
-                            value={formData.description}
-                            onChange={handleInputChange}
-                            rows={3}
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div>
-                          <h2 className="text-2xl font-bold">{organization.name}</h2>
-                          {organization.description && (
-                            <p className="text-muted-foreground mt-2">{organization.description}</p>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <h3 className="text-sm font-medium mb-1">Created</h3>
-                            <p className="text-muted-foreground">{formatDate(organization.createdAt)}</p>
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-medium mb-1">Last Updated</h3>
-                            <p className="text-muted-foreground">{formatDate(organization.updatedAt)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Quick Navigation</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Button variant="outline" className="w-full justify-start" asChild>
-                      <Link href={`/organizations/${organization.id}/dashboard`}>
-                        <Activity className="mr-2 h-4 w-4" />
-                        Dashboard
-                      </Link>
-                    </Button>
-                    <Button variant="outline" className="w-full justify-start" asChild>
-                      <Link href={`/organizations/${organization.id}/settings`}>
-                        <Settings className="mr-2 h-4 w-4" />
-                        Settings
-                      </Link>
-                    </Button>
-                    <Button variant="outline" className="w-full justify-start" asChild>
-                      <Link href={`/organizations/${organization.id}/edit`}>
-                        <Edit className="mr-2 h-4 w-4" />
-                        Edit Organization
-                      </Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="dashboard" className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Activity className="h-5 w-5" />
-                      Organization Dashboard
-                    </CardTitle>
-                    <CardDescription>
-                      Overview of organization metrics and activities
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-center py-8">
-                      <Activity className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                      <p className="text-muted-foreground mb-4">
-                        View detailed analytics and organization metrics
-                      </p>
-                      <Button asChild>
-                        <Link href={`/organizations/${organization.id}/dashboard`}>
-                          Go to Dashboard
-                        </Link>
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="projects" className="space-y-6">
-                <Card>
+              
+              <TabsContent value="projects" className="space-y-4">
+                <Card className="border-none shadow-sm">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <FolderOpen className="h-5 w-5" />
-                      Projects
+                      Recent Projects
                     </CardTitle>
                     <CardDescription>
                       Projects in this organization
@@ -731,9 +444,9 @@ export default function OrganizationDetailPage() {
                     {organization.projects.length === 0 ? (
                       <div className="text-center py-4">
                         <p className="text-muted-foreground">No projects in this organization</p>
-                        {canEdit && (
+                        {canCreate && (
                           <Button className="mt-2" asChild>
-                            <Link href="/projects/create">
+                            <Link href={`/projects/create?organizationId=${organization.id}`}>
                               <Plus className="mr-2 h-4 w-4" />
                               Create Project
                             </Link>
@@ -742,14 +455,11 @@ export default function OrganizationDetailPage() {
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {organization.projects.map(project => (
+                        {organization.projects.slice(0, 5).map(project => (
                           <div key={project.id} className="flex items-center justify-between p-3 border rounded-lg">
                             <div>
                               <h3 className="font-medium">{project.name}</h3>
                               <p className="text-sm text-muted-foreground">Key: {project.key}</p>
-                              {project.description && (
-                                <p className="text-sm text-muted-foreground line-clamp-1">{project.description}</p>
-                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <Badge className={getStatusColor(project.status)}>
@@ -763,18 +473,27 @@ export default function OrganizationDetailPage() {
                             </div>
                           </div>
                         ))}
+                        {organization.projects.length > 5 && (
+                          <div className="text-center pt-2">
+                            <Button variant="outline" size="sm" asChild>
+                              <Link href={`/projects?organizationId=${organization.id}`}>
+                                View All Projects
+                              </Link>
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>
                 </Card>
               </TabsContent>
-
-              <TabsContent value="teams" className="space-y-6">
-                <Card>
+              
+              <TabsContent value="teams" className="space-y-4">
+                <Card className="border-none shadow-sm">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Users2 className="h-5 w-5" />
-                      Teams
+                      Recent Teams
                     </CardTitle>
                     <CardDescription>
                       Teams in this organization
@@ -784,9 +503,9 @@ export default function OrganizationDetailPage() {
                     {organization.teams.length === 0 ? (
                       <div className="text-center py-4">
                         <p className="text-muted-foreground">No teams in this organization</p>
-                        {canEdit && (
+                        {canCreate && (
                           <Button className="mt-2" asChild>
-                            <Link href="/teams/create">
+                            <Link href={`/teams/create?organizationId=${organization.id}`}>
                               <Plus className="mr-2 h-4 w-4" />
                               Create Team
                             </Link>
@@ -795,13 +514,10 @@ export default function OrganizationDetailPage() {
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {organization.teams.map(team => (
+                        {organization.teams.slice(0, 5).map(team => (
                           <div key={team.id} className="flex items-center justify-between p-3 border rounded-lg">
                             <div>
                               <h3 className="font-medium">{team.name}</h3>
-                              {team.description && (
-                                <p className="text-sm text-muted-foreground line-clamp-1">{team.description}</p>
-                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <Badge className={getStatusColor(team.status)}>
@@ -815,48 +531,69 @@ export default function OrganizationDetailPage() {
                             </div>
                           </div>
                         ))}
+                        {organization.teams.length > 5 && (
+                          <div className="text-center pt-2">
+                            <Button variant="outline" size="sm" asChild>
+                              <Link href={`/teams?organizationId=${organization.id}`}>
+                                View All Teams
+                              </Link>
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>
                 </Card>
               </TabsContent>
+              
+              <TabsContent value="activity" className="space-y-4">
+                <Card className="border-none shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
+                      Recent Activity
+                    </CardTitle>
+                    <CardDescription>
+                      Recent actions in this organization
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {recentActivity.length > 0 ? (
+                        recentActivity.map(activity => (
+                          <div key={activity.id} className="flex items-start space-x-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={activity.user.avatar} />
+                              <AvatarFallback>
+                                {activity.user.name.charAt(0)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-medium">{activity.user.name}</span>
+                                <span className="text-sm text-muted-foreground">
+                                  {formatRelativeTime(activity.timestamp)}
+                                </span>
+                              </div>
+                              <p className="text-sm">
+                                {activity.action} {activity.description}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-center text-muted-foreground py-4">No recent activity</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
             </Tabs>
           </div>
-
+          
+          {/* Members Section */}
           <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Organization Stats
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                    <span>Projects</span>
-                  </div>
-                  <span className="font-medium">{organization._count.projects}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Users2 className="h-4 w-4 text-muted-foreground" />
-                    <span>Teams</span>
-                  </div>
-                  <span className="font-medium">{organization._count.teams}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                    <span>Members</span>
-                  </div>
-                  <span className="font-medium">{organization._count.members}</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
+            <Card className="border-none shadow-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5" />
@@ -866,86 +603,155 @@ export default function OrganizationDetailPage() {
                   People in this organization
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {organization.members.map(member => (
-                    <div key={member.id} className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <Avatar>
-                          <AvatarImage src={member.user.avatar} />
-                          <AvatarFallback>{member.user.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium">{member.user.name}</p>
-                          <p className="text-sm text-muted-foreground">{member.user.email}</p>
+              <CardContent className="space-y-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search members..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {filteredMembers.length > 0 ? (
+                    filteredMembers.map(member => (
+                      <div 
+                        key={member.id} 
+                        className={`p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors ${
+                          selectedMember === member.id ? 'border-primary' : ''
+                        }`}
+                        onClick={() => setSelectedMember(member.id === selectedMember ? null : member.id)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage src={member.user.avatar} />
+                              <AvatarFallback>
+                                {member.user.name.charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <h4 className="font-medium">{member.user.name}</h4>
+                              <p className="text-sm text-muted-foreground">{member.user.email}</p>
+                            </div>
+                          </div>
+                          <Badge className={getRoleColor(member.role)}>
+                            {member.role}
+                          </Badge>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={getRoleColor(member.role)}>
-                          {member.role}
-                        </Badge>
-                        {canManageMembers && (
-                          <div className="flex gap-1">
-                            <Select
-                              value={member.role}
-                              onValueChange={(value) => handleUpdateMemberRole(member.user.id, value)}
-                            >
-                              <SelectTrigger className="w-24 h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="OWNER">Owner</SelectItem>
-                                <SelectItem value="ADMIN">Admin</SelectItem>
-                                <SelectItem value="MANAGER">Manager</SelectItem>
-                                <SelectItem value="MEMBER">Member</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveMember(member.user.id)}
-                              disabled={member.user.id === session?.user?.id}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-4 text-muted-foreground">
+                      <p>No members found</p>
                     </div>
-                  ))}
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {canEdit && (
-                  <>
-                    <Button variant="outline" className="w-full" asChild>
-                      <Link href={`/organizations/${organization.id}/settings`}>
-                        <Settings className="mr-2 h-4 w-4" />
-                        Organization Settings
-                      </Link>
-                    </Button>
-                    <Button variant="outline" className="w-full" asChild>
-                      <Link href={`/organizations/${organization.id}/edit`}>
-                        <Edit className="mr-2 h-4 w-4" />
-                        Edit Organization
-                      </Link>
-                    </Button>
-                    <Button variant="outline" className="w-full" asChild>
-                      <Link href={`/organizations/${organization.id}/dashboard`}>
-                        <Activity className="mr-2 h-4 w-4" />
-                        Dashboard
-                      </Link>
-                    </Button>
-                  </>
+                
+                {canCreate && (
+                  <Button variant="outline" className="w-full" asChild>
+                    <Link href={`/organizations/${organization.id}/invite`}>
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      Invite Member
+                    </Link>
+                  </Button>
                 )}
               </CardContent>
             </Card>
+            
+            {/* Selected Member Details */}
+            {selectedMemberData && (
+              <div className="space-y-4">
+                <Card className="border-none shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>Member Details</span>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setSelectedMember(null)}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <Avatar className="h-16 w-16">
+                        <AvatarImage src={selectedMemberData.user.avatar} />
+                        <AvatarFallback className="text-xl">
+                          {selectedMemberData.user.name.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <h3 className="text-lg font-semibold">{selectedMemberData.user.name}</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge className={getRoleColor(selectedMemberData.role)}>
+                            {selectedMemberData.role}
+                          </Badge>
+                          <Badge className={
+                            selectedMemberData.user.status === "ACTIVE" 
+                              ? "bg-green-100 text-green-800" 
+                              : "bg-gray-100 text-gray-800"
+                          }>
+                            {selectedMemberData.user.status}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm">
+                          <Mail className="h-4 w-4 text-muted-foreground" />
+                          <span>{selectedMemberData.user.email}</span>
+                        </div>
+                        {selectedMemberData.user.location && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <MapPin className="h-4 w-4 text-muted-foreground" />
+                            <span>{selectedMemberData.user.location}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 text-sm">
+                          <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                          <span>Joined {formatDate(selectedMemberData.joinedAt)}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm">
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                          <span>Role: {selectedMemberData.role}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                          <span>Member since {formatDate(selectedMemberData.joinedAt)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {selectedMemberData.user.bio && (
+                      <div className="pt-2 border-t">
+                        <p className="text-sm text-muted-foreground">
+                          {selectedMemberData.user.bio}
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                
+                {/* User Stats */}
+                <UserStats userId={selectedMemberData.user.id} />
+                
+                {/* User Activity */}
+                <UserActivity userId={selectedMemberData.user.id} />
+                
+                {/* User Teams */}
+                <UserTeams userId={selectedMemberData.user.id} />
+              </div>
+            )}
           </div>
         </div>
       </div>

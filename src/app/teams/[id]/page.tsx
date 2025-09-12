@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import CreateTeamDialog from "@/components/teams/create-team-dialog"
+import TasksSection from "@/components/teams/tasks-section"
 import { MeetingsList } from "@/components/teams/meetings-list"
 import { ScheduleMeetingDialog } from "@/components/teams/schedule-meeting-dialog"
 import {
@@ -456,6 +457,9 @@ export default function TeamDetailPage() {
                                 </div>
                             </CardContent>
                         </Card>
+                    </TabsContent>
+                    <TabsContent value="tasks" className="space-y-4">
+                        <TasksSection teamId={teamId} userRole={userRole} />
                     </TabsContent>
                     <TabsContent value="projects" className="space-y-4">
                         <Card>

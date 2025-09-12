@@ -93,6 +93,11 @@ export default function ScheduleMeetingTimePage() {
         description: "Your meeting has been scheduled successfully with Google Meet link.",
       })
 
+      // Send notifications to team members
+      await fetch(`/api/teams/${teamId}/meetings/${meetingData.id}/notify`, {
+        method: "POST",
+      })
+
       router.push(`/teams/${teamId}`)
     } catch (error) {
       console.error("Error scheduling meeting:", error)

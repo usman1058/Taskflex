@@ -40,6 +40,9 @@ yarn-error.log*
 .project_structure_filter/
 
 # typescript
+
+_docs
+
 *.tsbuildinfo
 next-env.d.ts
 local-*

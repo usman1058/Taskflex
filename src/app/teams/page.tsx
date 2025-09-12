@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Input } from "@/components/ui/input"
-import { 
-  Plus, 
-  Users, 
-  Search, 
+import {
+  Plus,
+  Users,
+  Search,
   UserPlus,
   Settings,
   ArrowRight,
@@ -22,6 +22,30 @@ import CreateTeamDialog from "@/components/teams/create-team-dialog"
 import InviteMemberDialog from "@/components/teams/invite-member-dialog"
 import Link from "next/link"
 import { format } from "date-fns"
+
+
+interface Task {
+  id: string
+  title: string
+  description: string | null
+  status: string
+  priority: string
+  type: string
+  dueDate: string | null
+  createdAt: string
+  updatedAt: string
+  creatorId: string
+  projectId: string | null
+  teamId: string
+  assignees: {
+    user: {
+      id: string
+      name: string | null
+      email: string
+      avatar: string | null
+    }
+  }[]
+}
 
 interface Team {
   id: string
@@ -49,6 +73,20 @@ interface Team {
       avatar: string | null
     }
   }[]
+  organization: {
+    id: string
+    name: string
+  } | null
+  projects: {
+    id: string
+    name: string
+    key: string
+    status: string
+    _count: {
+      tasks: number
+    }
+  }[]
+  tasks: Task[]
   _count: {
     members: number
     projects: number
@@ -66,17 +104,18 @@ export default function TeamsPage() {
     fetchTeams()
   }, [])
 
+
   const fetchTeams = async () => {
     try {
       setLoading(true)
       setError(null)
-      
+
       const response = await fetch("/api/teams")
-      
+
       if (!response.ok) {
         throw new Error(`Failed to fetch teams: ${response.status}`)
       }
-      
+
       const teamsData = await response.json()
       setTeams(teamsData)
     } catch (error) {
@@ -104,6 +143,43 @@ export default function TeamsPage() {
       default: return "bg-gray-100 text-gray-800"
     }
   }
+
+
+  const handleAssignTask = async (memberId: string, taskId: string) => {
+    if (!team) return;
+    try {
+      setIsAssigning(true);
+
+      // Check if the assignment already exists
+      const existingAssignment = await db.taskAssignment.findFirst({
+        where: {
+          taskId,
+          userId: memberId
+        }
+      });
+
+      if (existingAssignment) {
+        // Assignment already exists, no need to create a new one
+        setIsAssigning(false);
+        return;
+      }
+
+      // Create a new assignment
+      await db.taskAssignment.create({
+        data: {
+          taskId,
+          userId: memberId,
+          role: 'ASSIGNEE'
+        },
+      });
+
+      fetchTeam();
+    } catch (error) {
+      console.error("Error assigning task:", error);
+    } finally {
+      setIsAssigning(false);
+    }
+  };
 
   const formatDate = (dateString: string) => {
     return format(new Date(dateString), "MMM dd, yyyy")
@@ -149,7 +225,7 @@ export default function TeamsPage() {
             </Button>
           </CreateTeamDialog>
         </div>
-        
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -172,7 +248,7 @@ export default function TeamsPage() {
                 />
               </div>
             </div>
-            
+
             {teams.length === 0 ? (
               <div className="text-center py-8">
                 <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -212,7 +288,7 @@ export default function TeamsPage() {
                             )}
                           </div>
                         </div>
-                        
+
                         <div className="flex items-center justify-between text-sm text-muted-foreground">
                           <div className="flex items-center gap-4">
                             <div className="flex items-center gap-1">
@@ -225,7 +301,7 @@ export default function TeamsPage() {
                             </div>
                           </div>
                         </div>
-                        
+
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Avatar className="h-6 w-6">
@@ -241,7 +317,7 @@ export default function TeamsPage() {
                               </p>
                             </div>
                           </div>
-                          
+
                           <div className="flex gap-2">
                             <Button variant="outline" size="sm" asChild>
                               <Link href={`/teams/${team.id}`}>
@@ -251,7 +327,7 @@ export default function TeamsPage() {
                             </Button>
                           </div>
                         </div>
-                        
+
                         <div className="flex -space-x-2">
                           {team.members.slice(0, 5).map((member) => (
                             <Avatar key={member.id} className="h-8 w-8 border-2 border-background">
