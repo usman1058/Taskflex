@@ -22,7 +22,7 @@ import {
   Filter
 } from "lucide-react"
 import Link from "next/link"
-import { UserCard } from "@/components/user/user-card"
+import { UserCard } from "@/components/user/user-cards"
 import { UserStats } from "@/components/user/user-stats"
 import { UserActivity } from "@/components/user/user-activity"
 import { UserTeams } from "@/components/user/user-teams"
