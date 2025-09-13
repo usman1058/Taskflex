@@ -14,6 +14,9 @@ export const useMicrophoneTest = () => {
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationRef = useRef<number | null>(null);
   
   // Get available audio devices
   const getAudioDevices = async () => {
@@ -50,16 +53,15 @@ export const useMicrophoneTest = () => {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       setDebugInfo('Microphone access granted');
       
-      // Create a simple audio context to test
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const analyser = audioContext.createAnalyser();
-      const microphone = audioContext.createMediaStreamSource(stream);
-      microphone.connect(analyser);
+      // Create audio context for real-time analysis
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
       
-      // Set up analyser
+      // Create analyser
+      const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
+      analyserRef.current = analyser;
       
       // Create media recorder for recording
       mediaRecorderRef.current = new MediaRecorder(stream);
@@ -76,18 +78,27 @@ export const useMicrophoneTest = () => {
         setIsRecording(false);
       };
       
+      // Connect microphone to analyser
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      
       // Start recording
       mediaRecorderRef.current.start();
       setIsRecording(true);
       setDebugInfo('Recording started');
       
-      // Check volume levels
+      // Set up real-time volume analysis
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      
       let maxVolume = 0;
       let detectedSound = false;
       const startTime = Date.now();
       
-      const checkVolume = () => {
-        analyser.getByteFrequencyData(dataArray);
+      const analyzeVolume = () => {
+        if (!analyserRef.current) return;
+        
+        analyserRef.current.getByteFrequencyData(dataArray);
         
         // Calculate average volume
         let sum = 0;
@@ -97,6 +108,7 @@ export const useMicrophoneTest = () => {
         const average = sum / bufferLength;
         const normalizedLevel = Math.min(100, (average / 128) * 100);
         
+        // Update mic level in real-time
         setMicLevel(normalizedLevel);
         
         // Track maximum volume
@@ -114,11 +126,11 @@ export const useMicrophoneTest = () => {
         if (elapsed > 5000) {
           stopMicrophoneTest(detectedSound, maxVolume);
         } else {
-          requestAnimationFrame(checkVolume);
+          animationRef.current = requestAnimationFrame(analyzeVolume);
         }
       };
       
-      checkVolume();
+      animationRef.current = requestAnimationFrame(analyzeVolume);
       
     } catch (error) {
       console.error('Microphone test error:', error);
@@ -131,8 +143,17 @@ export const useMicrophoneTest = () => {
   };
   
   const stopMicrophoneTest = (soundDetected: boolean, maxLevel: number) => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
+    }
+    
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
     }
     
     setIsTesting(false);
@@ -159,6 +180,12 @@ export const useMicrophoneTest = () => {
     getAudioDevices();
     
     return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl);
       }

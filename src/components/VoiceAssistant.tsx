@@ -5,6 +5,8 @@ import { useState, useRef, useEffect } from 'react';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useMicrophoneTest } from '@/hooks/useMicrophoneTest';
+import { useChatGPT } from '@/hooks/useChatGPT';
+import { VoiceIndicator } from './VoiceIndicator';
 
 const VoiceAssistant = () => {
   const [response, setResponse] = useState('');
@@ -14,6 +16,7 @@ const VoiceAssistant = () => {
   const [showMicTest, setShowMicTest] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [manualText, setManualText] = useState('');
+  const [realtimeTranscript, setRealtimeTranscript] = useState('');
   
   const {
     speak,
@@ -59,10 +62,13 @@ const VoiceAssistant = () => {
     playRecordedAudio
   } = useMicrophoneTest();
   
+  const { processMessage, isLoading: isChatGPTLoading } = useChatGPT();
+  
   const conversationEndRef = useRef<HTMLDivElement>(null);
   
   const handleStartListening = () => {
     resetTranscript();
+    setRealtimeTranscript('');
     startListening();
     
     // Add user speaking indicator
@@ -99,31 +105,21 @@ const VoiceAssistant = () => {
     setConversation(prev => [...prev, { role: 'assistant', text: '...' }]);
     
     try {
-      const res = await fetch('/api/voice-agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          query: command, 
-          sessionId: sessionId || Date.now().toString() 
-        }),
-      });
+      const response = await processMessage(command, sessionId || Date.now().toString());
       
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Request failed');
-      
-      setResponse(data.text);
+      setResponse(response);
       
       // Update the assistant message with the actual response
       setConversation(prev => {
         const newConv = [...prev];
         if (newConv.length > 0 && newConv[newConv.length - 1].role === 'assistant') {
-          newConv[newConv.length - 1] = { role: 'assistant', text: data.text };
+          newConv[newConv.length - 1] = { role: 'assistant', text: response };
         }
         return newConv;
       });
       
-      if (data.text && ttsSupported && !speaking) {
-        speak(data.text);
+      if (response && ttsSupported && !speaking) {
+        speak(response);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred';
@@ -165,6 +161,7 @@ const VoiceAssistant = () => {
     setResponse('');
     resetTranscript();
     setManualText('');
+    setRealtimeTranscript('');
   };
   
   useEffect(() => {
@@ -186,6 +183,13 @@ const VoiceAssistant = () => {
         }
         return newConv;
       });
+    }
+  }, [transcript, isListening]);
+  
+  useEffect(() => {
+    // Update realtime transcript
+    if (isListening) {
+      setRealtimeTranscript(transcript);
     }
   }, [transcript, isListening]);
   
@@ -291,9 +295,14 @@ const VoiceAssistant = () => {
           <div className="mb-3">
             <div className="text-sm text-gray-600 mb-1">Speaking:</div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-gray-800 min-h-12">
-              {transcript || 'Listening...'}
+              {realtimeTranscript || 'Listening...'}
             </div>
           </div>
+        )}
+        
+        {/* Voice Indicator */}
+        {isListening && (
+          <VoiceIndicator isListening={isListening} micLevel={micLevel} />
         )}
         
         {/* Microphone button */}
@@ -510,7 +519,7 @@ const VoiceAssistant = () => {
         
         {/* Status indicator */}
         <div className="text-center text-sm text-gray-600">
-          {isLoading ? (
+          {isLoading || isChatGPTLoading ? (
             <div className="flex items-center justify-center space-x-1">
               <div className="h-2 w-2 bg-blue-500 rounded-full animate-bounce"></div>
               <div className="h-2 w-2 bg-blue-500 rounded-full animate-bounce delay-75"></div>
