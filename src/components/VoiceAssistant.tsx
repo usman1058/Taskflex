@@ -2,7 +2,8 @@
 'use client'
 // components/VoiceAssistant.tsx
 import { useState, useRef, useEffect } from 'react';
-import { useSpeechSynthesis } from 'react-speech-kit';
+import { useTextToSpeech } from '@/hooks/useTextToSpeech';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useMicrophoneTest } from '@/hooks/useMicrophoneTest';
 
 const VoiceAssistant = () => {
@@ -13,11 +14,35 @@ const VoiceAssistant = () => {
   const [showMicTest, setShowMicTest] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [manualText, setManualText] = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [error, setError] = useState('');
   
-  const { speak, speaking, cancel } = useSpeechSynthesis();
+  const {
+    speak,
+    cancel,
+    speaking,
+    supported: ttsSupported,
+    voices,
+    selectedVoice,
+    setSelectedVoice,
+    rate,
+    setRate,
+    pitch,
+    setPitch,
+    volume,
+    setVolume
+  } = useTextToSpeech();
+  
+  const {
+    transcript,
+    isListening,
+    error,
+    startListening,
+    stopListening,
+    resetTranscript,
+    browserSupport,
+    microphoneAvailable,
+    recognitionType,
+    debugInfo: speechDebugInfo
+  } = useSpeechRecognition();
   
   const {
     isTesting,
@@ -28,98 +53,24 @@ const VoiceAssistant = () => {
     isRecording,
     devices,
     selectedDevice,
-    setSelectedDevice,
-    debugInfo,
+    setSelectedDevice: setSelectedMicDevice,
+    debugInfo: micDebugInfo,
     testMicrophone,
     playRecordedAudio
   } = useMicrophoneTest();
   
-  const recognitionRef = useRef<any>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   
-  // Initialize speech recognition
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      setError('Speech recognition not supported in this browser');
-      return;
-    }
-    
-    recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = true;
-    recognitionRef.current.interimResults = true;
-    recognitionRef.current.lang = 'en-US';
-    
-    recognitionRef.current.onresult = (event: any) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
-      
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const transcript = result[0].transcript;
-        
-        if (result.isFinal) {
-          finalTranscript += transcript + ' ';
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-      
-      if (finalTranscript) {
-        setTranscript(prev => prev + finalTranscript);
-      } else {
-        setTranscript(prev => prev + interimTranscript);
-      }
-    };
-    
-    recognitionRef.current.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      setError(`Speech recognition error: ${event.error}`);
-      setIsListening(false);
-    };
-    
-    recognitionRef.current.onend = () => {
-      if (isListening) {
-        try {
-          recognitionRef.current.start();
-        } catch (e) {
-          console.error('Failed to restart speech recognition:', e);
-          setIsListening(false);
-        }
-      }
-    };
-    
-    return () => {
-      if (recognitionRef.current && isListening) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, [isListening]);
-  
   const handleStartListening = () => {
-    setTranscript('');
-    setError('');
-    setIsListening(true);
-    
-    try {
-      recognitionRef.current.start();
-    } catch (e) {
-      console.error('Error starting speech recognition:', e);
-      setError('Failed to start speech recognition');
-      setIsListening(false);
-    }
+    resetTranscript();
+    startListening();
     
     // Add user speaking indicator
     setConversation(prev => [...prev, { role: 'user', text: '...' }]);
   };
   
   const handleStopListening = () => {
-    setIsListening(false);
-    
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
+    stopListening();
     
     // Update the last user message with the actual transcript
     if (transcript.trim()) {
@@ -171,8 +122,8 @@ const VoiceAssistant = () => {
         return newConv;
       });
       
-      if (data.text && !speaking) {
-        speak({ text: data.text });
+      if (data.text && ttsSupported && !speaking) {
+        speak(data.text);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred';
@@ -186,8 +137,8 @@ const VoiceAssistant = () => {
         return newConv;
       });
       
-      if (!speaking) {
-        speak({ text: errorMessage });
+      if (ttsSupported && !speaking) {
+        speak(errorMessage);
       }
     } finally {
       setIsLoading(false);
@@ -212,9 +163,8 @@ const VoiceAssistant = () => {
   const resetConversation = () => {
     setConversation([]);
     setResponse('');
-    setTranscript('');
+    resetTranscript();
     setManualText('');
-    setError('');
   };
   
   useEffect(() => {
@@ -238,6 +188,30 @@ const VoiceAssistant = () => {
       });
     }
   }, [transcript, isListening]);
+  
+  if (!browserSupport) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+        <div className="text-red-700 font-medium">Speech Recognition Not Supported</div>
+        <p className="text-red-600 mt-2">Your browser doesn't support speech recognition. Please try Chrome, Edge, or Safari.</p>
+      </div>
+    );
+  }
+  
+  if (!microphoneAvailable) {
+    return (
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+        <div className="text-yellow-700 font-medium">Microphone Not Available</div>
+        <p className="text-yellow-600 mt-2">Please check your microphone permissions and try again.</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="mt-4 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600"
+        >
+          Reload Page
+        </button>
+      </div>
+    );
+  }
   
   return (
     <div className="voice-assistant bg-white rounded-xl shadow-lg overflow-hidden w-full max-w-md max-h-[90vh] flex flex-col">
@@ -401,7 +375,7 @@ const VoiceAssistant = () => {
                 <div className="mb-2">
                   <select
                     value={selectedDevice}
-                    onChange={(e) => setSelectedDevice(e.target.value)}
+                    onChange={(e) => setSelectedMicDevice(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                   >
                     {devices.map((device) => (
@@ -461,6 +435,79 @@ const VoiceAssistant = () => {
           )}
         </div>
         
+        {/* Text-to-Speech settings */}
+        {ttsSupported && (
+          <div className="mb-3">
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+            >
+              {showAdvanced ? 'Hide Text-to-Speech Settings' : 'Show Text-to-Speech Settings'}
+            </button>
+            
+            {showAdvanced && (
+              <div className="mt-3 space-y-2">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Voice:</label>
+                  <select
+                    value={selectedVoice?.voiceURI || ''}
+                    onChange={(e) => {
+                      const voice = voices.find(v => v.voiceURI === e.target.value);
+                      if (voice) setSelectedVoice(voice);
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  >
+                    {voices.map((voice) => (
+                      <option key={voice.voiceURI} value={voice.voiceURI}>
+                        {voice.name} ({voice.lang})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Rate: {rate}</label>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="2"
+                    step="0.1"
+                    value={rate}
+                    onChange={(e) => setRate(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Pitch: {pitch}</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    value={pitch}
+                    onChange={(e) => setPitch(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Volume: {volume}</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    value={volume}
+                    onChange={(e) => setVolume(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
         {/* Status indicator */}
         <div className="text-center text-sm text-gray-600">
           {isLoading ? (
@@ -482,6 +529,15 @@ const VoiceAssistant = () => {
             </div>
           )}
         </div>
+      </div>
+      
+      {/* Debug info */}
+      <div className="p-3 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">
+        <div>Browser Support: {browserSupport ? 'Yes' : 'No'}</div>
+        <div>Microphone Available: {microphoneAvailable ? 'Yes' : 'No'}</div>
+        <div>Is Listening: {isListening ? 'Yes' : 'No'}</div>
+        <div>Transcript: {transcript || 'Empty'}</div>
+        <div>TTS Supported: {ttsSupported ? 'Yes' : 'No'}</div>
       </div>
     </div>
   );

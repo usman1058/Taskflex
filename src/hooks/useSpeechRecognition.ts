@@ -1,13 +1,26 @@
 // hooks/useSpeechRecognition.ts
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
-export const useSpeechRecognition = () => {
+interface UseSpeechRecognitionReturn {
+  transcript: string;
+  isListening: boolean;
+  error: string | null;
+  startListening: () => void;
+  stopListening: () => void;
+  resetTranscript: () => void;
+  browserSupport: boolean;
+  microphoneAvailable: boolean;
+  recognitionType: string;
+  debugInfo: string;
+}
+
+export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
   const [transcript, setTranscript] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [browserSupport, setBrowserSupport] = useState(false);
   const [microphoneAvailable, setMicrophoneAvailable] = useState(false);
-  const [recognitionType, setRecognitionType] = useState<'browser' | 'webspeechkit' | 'none'>('none');
+  const [recognitionType, setRecognitionType] = useState('none');
   const [debugInfo, setDebugInfo] = useState('');
   
   const recognitionRef = useRef<any>(null);
@@ -42,11 +55,11 @@ export const useSpeechRecognition = () => {
         
         // Determine recognition type
         if ((window as any).webkitSpeechRecognition) {
-          setRecognitionType('webspeechkit');
+          setRecognitionType('webkit');
           setDebugInfo('Using WebKit Speech Recognition');
         } else {
-          setRecognitionType('browser');
-          setDebugInfo('Using Browser Speech Recognition');
+          setRecognitionType('standard');
+          setDebugInfo('Using Standard Speech Recognition');
         }
         
         // Set up event handlers
