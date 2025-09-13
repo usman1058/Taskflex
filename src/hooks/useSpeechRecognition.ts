@@ -52,6 +52,7 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
         recognitionRef.current.continuous = true;
         recognitionRef.current.interimResults = true;
         recognitionRef.current.lang = 'en-US';
+        recognitionRef.current.maxAlternatives = 1; // Improve accuracy
         
         // Determine recognition type
         if ((window as any).webkitSpeechRecognition) {
@@ -66,35 +67,24 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
         recognitionRef.current.onstart = () => {
           console.log('Speech recognition started');
           setDebugInfo('Speech recognition started');
-          
-          // Set timeout to stop if no speech detected
-          timeoutRef.current = setTimeout(() => {
-            if (isListening) {
-              stopListening();
-              setError('No speech detected. Please check your microphone and try again.');
-              setDebugInfo('No speech detected timeout triggered');
-            }
-          }, 5000);
         };
         
         recognitionRef.current.onresult = (event: any) => {
-          // Clear timeout when speech is detected
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-          }
-          
           let finalTranscript = '';
           let interimTranscript = '';
           
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
             const transcript = result[0].transcript;
+            const confidence = result[0].confidence;
             
-            if (result.isFinal) {
-              finalTranscript += transcript + ' ';
-            } else {
-              interimTranscript += transcript;
+            // Only use results with good confidence
+            if (confidence > 0.7) {
+              if (result.isFinal) {
+                finalTranscript += transcript + ' ';
+              } else {
+                interimTranscript += transcript;
+              }
             }
           }
           
@@ -114,7 +104,7 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
           let errorMessage = 'Speech recognition error';
           switch (event.error) {
             case 'no-speech':
-              errorMessage = 'No speech was detected. Please check your microphone and try again.';
+              errorMessage = 'No speech was detected. Please speak more clearly or check your microphone.';
               break;
             case 'audio-capture':
               errorMessage = 'No microphone was found. Ensure that a microphone is installed.';
@@ -189,10 +179,6 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
     if (!isListening || !recognitionRef.current) return;
     
     try {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
       recognitionRef.current.stop();
       setIsListening(false);
       setDebugInfo('Speech recognition stopped');

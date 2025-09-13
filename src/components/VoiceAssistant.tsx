@@ -3,9 +3,8 @@
 // components/VoiceAssistant.tsx
 import { useState, useRef, useEffect } from 'react';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
-import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
-import { useMicrophoneTest } from '@/hooks/useMicrophoneTest';
-import { useChatGPT } from '@/hooks/useChatGPT';
+import { useRealtimeMicrophone } from '@/hooks/useRealtimeMicrophone';
+import { useGeminiAI } from '@/hooks/useGeminiAI';
 import { VoiceIndicator } from './VoiceIndicator';
 
 const VoiceAssistant = () => {
@@ -16,7 +15,6 @@ const VoiceAssistant = () => {
   const [showMicTest, setShowMicTest] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [manualText, setManualText] = useState('');
-  const [realtimeTranscript, setRealtimeTranscript] = useState('');
   
   const {
     speak,
@@ -35,40 +33,20 @@ const VoiceAssistant = () => {
   } = useTextToSpeech();
   
   const {
-    transcript,
     isListening,
-    error,
+    micLevel,
+    transcript: realtimeTranscript,
     startListening,
     stopListening,
-    resetTranscript,
-    browserSupport,
-    microphoneAvailable,
-    recognitionType,
-    debugInfo: speechDebugInfo
-  } = useSpeechRecognition();
+    error: micError
+  } = useRealtimeMicrophone();
   
-  const {
-    isTesting,
-    micLevel,
-    micStatus,
-    micMessage,
-    audioUrl,
-    isRecording,
-    devices,
-    selectedDevice,
-    setSelectedDevice: setSelectedMicDevice,
-    debugInfo: micDebugInfo,
-    testMicrophone,
-    playRecordedAudio
-  } = useMicrophoneTest();
-  
-  const { processMessage, isLoading: isChatGPTLoading } = useChatGPT();
+  // Replace with your actual Gemini API key
+  const { processMessage, isLoading: isGeminiLoading } = useGeminiAI('YOUR_GEMINI_API_KEY');
   
   const conversationEndRef = useRef<HTMLDivElement>(null);
   
   const handleStartListening = () => {
-    resetTranscript();
-    setRealtimeTranscript('');
     startListening();
     
     // Add user speaking indicator
@@ -79,14 +57,17 @@ const VoiceAssistant = () => {
     stopListening();
     
     // Update the last user message with the actual transcript
-    if (transcript.trim()) {
+    if (realtimeTranscript.trim()) {
       setConversation(prev => {
         const newConv = [...prev];
         if (newConv.length > 0 && newConv[newConv.length - 1].role === 'user') {
-          newConv[newConv.length - 1] = { role: 'user', text: transcript };
+          newConv[newConv.length - 1] = { role: 'user', text: realtimeTranscript };
         }
         return newConv;
       });
+      
+      // Automatically process the command
+      processVoiceCommand(realtimeTranscript);
     }
   };
   
@@ -141,13 +122,6 @@ const VoiceAssistant = () => {
     }
   };
   
-  const handleManualSubmit = () => {
-    if (transcript.trim()) {
-      handleStopListening();
-      processVoiceCommand(transcript);
-    }
-  };
-  
   const handleTextSubmit = () => {
     if (manualText.trim()) {
       setConversation(prev => [...prev, { role: 'user', text: manualText }]);
@@ -159,9 +133,7 @@ const VoiceAssistant = () => {
   const resetConversation = () => {
     setConversation([]);
     setResponse('');
-    resetTranscript();
     setManualText('');
-    setRealtimeTranscript('');
   };
   
   useEffect(() => {
@@ -175,47 +147,16 @@ const VoiceAssistant = () => {
   
   useEffect(() => {
     // Update the conversation with interim transcript
-    if (isListening && transcript) {
+    if (isListening && realtimeTranscript) {
       setConversation(prev => {
         const newConv = [...prev];
         if (newConv.length > 0 && newConv[newConv.length - 1].role === 'user') {
-          newConv[newConv.length - 1] = { role: 'user', text: transcript };
+          newConv[newConv.length - 1] = { role: 'user', text: realtimeTranscript };
         }
         return newConv;
       });
     }
-  }, [transcript, isListening]);
-  
-  useEffect(() => {
-    // Update realtime transcript
-    if (isListening) {
-      setRealtimeTranscript(transcript);
-    }
-  }, [transcript, isListening]);
-  
-  if (!browserSupport) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-        <div className="text-red-700 font-medium">Speech Recognition Not Supported</div>
-        <p className="text-red-600 mt-2">Your browser doesn't support speech recognition. Please try Chrome, Edge, or Safari.</p>
-      </div>
-    );
-  }
-  
-  if (!microphoneAvailable) {
-    return (
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-        <div className="text-yellow-700 font-medium">Microphone Not Available</div>
-        <p className="text-yellow-600 mt-2">Please check your microphone permissions and try again.</p>
-        <button 
-          onClick={() => window.location.reload()}
-          className="mt-4 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600"
-        >
-          Reload Page
-        </button>
-      </div>
-    );
-  }
+  }, [realtimeTranscript, isListening]);
   
   return (
     <div className="voice-assistant bg-white rounded-xl shadow-lg overflow-hidden w-full max-w-md max-h-[90vh] flex flex-col">
@@ -279,13 +220,13 @@ const VoiceAssistant = () => {
       {/* Controls - Fixed at bottom */}
       <div className="p-4 border-t border-gray-200 flex-shrink-0">
         {/* Error display */}
-        {error && (
+        {(micError || error) && (
           <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
             <div className="text-red-700 text-sm flex items-start">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
               </svg>
-              <span>{error}</span>
+              <span>{micError || error}</span>
             </div>
           </div>
         )}
@@ -329,19 +270,6 @@ const VoiceAssistant = () => {
           </button>
         </div>
         
-        {/* Manual submit button */}
-        {transcript && !isListening && (
-          <div className="flex justify-center mb-3">
-            <button
-              onClick={handleManualSubmit}
-              disabled={isLoading}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
-            >
-              {isLoading ? 'Processing...' : 'Send Command'}
-            </button>
-          </div>
-        )}
-        
         {/* Text input fallback */}
         <div className="mb-3">
           <div className="text-sm text-gray-600 mb-1">Or type your command:</div>
@@ -364,162 +292,9 @@ const VoiceAssistant = () => {
           </div>
         </div>
         
-        {/* Microphone test section */}
-        <div className="mb-3">
-          <button
-            onClick={() => setShowMicTest(!showMicTest)}
-            className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-          >
-            {showMicTest ? 'Hide Microphone Test' : 'Test Microphone'}
-          </button>
-          
-          {showMicTest && (
-            <div className="mt-3">
-              <div className="text-sm text-gray-600 mb-2">
-                {isTesting ? 'Testing microphone...' : 'Click "Test Microphone" and speak into your mic'}
-              </div>
-              
-              {/* Device selection */}
-              {devices.length > 1 && (
-                <div className="mb-2">
-                  <select
-                    value={selectedDevice}
-                    onChange={(e) => setSelectedMicDevice(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    {devices.map((device) => (
-                      <option key={device.deviceId} value={device.deviceId}>
-                        {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              {/* Microphone level indicator */}
-              <div className="bg-gray-200 rounded-full h-4 mb-2 overflow-hidden">
-                <div 
-                  className="bg-green-500 h-full transition-all duration-150"
-                  style={{ width: `${micLevel}%` }}
-                ></div>
-              </div>
-              
-              {/* Microphone status */}
-              <div className={`text-sm p-2 rounded ${
-                micStatus === 'working' ? 'bg-green-100 text-green-700' :
-                micStatus === 'not-working' ? 'bg-red-100 text-red-700' :
-                'bg-blue-100 text-blue-700'
-              }`}>
-                {micMessage || 'Click "Test Microphone" to begin'}
-              </div>
-              
-              {/* Recording indicator */}
-              {isRecording && (
-                <div className="flex items-center mt-2 text-sm text-red-600">
-                  <div className="h-3 w-3 rounded-full bg-red-500 animate-pulse mr-2"></div>
-                  Recording...
-                </div>
-              )}
-              
-              {/* Play recorded audio */}
-              {audioUrl && (
-                <div className="mt-2">
-                  <button
-                    onClick={playRecordedAudio}
-                    className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
-                  >
-                    Play Recording
-                  </button>
-                </div>
-              )}
-              
-              <button
-                onClick={testMicrophone}
-                disabled={isTesting}
-                className="mt-2 w-full px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 text-sm"
-              >
-                {isTesting ? 'Testing...' : 'Start Test'}
-              </button>
-            </div>
-          )}
-        </div>
-        
-        {/* Text-to-Speech settings */}
-        {ttsSupported && (
-          <div className="mb-3">
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-            >
-              {showAdvanced ? 'Hide Text-to-Speech Settings' : 'Show Text-to-Speech Settings'}
-            </button>
-            
-            {showAdvanced && (
-              <div className="mt-3 space-y-2">
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Voice:</label>
-                  <select
-                    value={selectedVoice?.voiceURI || ''}
-                    onChange={(e) => {
-                      const voice = voices.find(v => v.voiceURI === e.target.value);
-                      if (voice) setSelectedVoice(voice);
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    {voices.map((voice) => (
-                      <option key={voice.voiceURI} value={voice.voiceURI}>
-                        {voice.name} ({voice.lang})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Rate: {rate}</label>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2"
-                    step="0.1"
-                    value={rate}
-                    onChange={(e) => setRate(parseFloat(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Pitch: {pitch}</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    value={pitch}
-                    onChange={(e) => setPitch(parseFloat(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Volume: {volume}</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={volume}
-                    onChange={(e) => setVolume(parseFloat(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        
         {/* Status indicator */}
         <div className="text-center text-sm text-gray-600">
-          {isLoading || isChatGPTLoading ? (
+          {isLoading || isGeminiLoading ? (
             <div className="flex items-center justify-center space-x-1">
               <div className="h-2 w-2 bg-blue-500 rounded-full animate-bounce"></div>
               <div className="h-2 w-2 bg-blue-500 rounded-full animate-bounce delay-75"></div>
@@ -538,15 +313,6 @@ const VoiceAssistant = () => {
             </div>
           )}
         </div>
-      </div>
-      
-      {/* Debug info */}
-      <div className="p-3 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">
-        <div>Browser Support: {browserSupport ? 'Yes' : 'No'}</div>
-        <div>Microphone Available: {microphoneAvailable ? 'Yes' : 'No'}</div>
-        <div>Is Listening: {isListening ? 'Yes' : 'No'}</div>
-        <div>Transcript: {transcript || 'Empty'}</div>
-        <div>TTS Supported: {ttsSupported ? 'Yes' : 'No'}</div>
       </div>
     </div>
   );
