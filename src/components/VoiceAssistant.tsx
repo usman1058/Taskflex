@@ -6,6 +6,7 @@ import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { useRealtimeMicrophone } from '@/hooks/useRealtimeMicrophone';
 import { useGeminiAI } from '@/hooks/useGeminiAi';
 import { VoiceIndicator } from './VoiceIndicator';
+import error from 'next/error';
 
 const VoiceAssistant = () => {
   const [response, setResponse] = useState('');
