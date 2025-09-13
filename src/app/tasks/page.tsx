@@ -24,7 +24,13 @@ import {
   User,
   Calendar,
   MessageSquare,
-  Paperclip
+  Paperclip,
+  Layers,
+  Target,
+  Flag,
+  Users,
+  Tag,
+  BarChart3
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -38,6 +44,7 @@ import Link from "next/link"
 import { format } from "date-fns"
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Progress } from "@/components/ui/progress"
 
 interface Task {
   id: string
@@ -99,6 +106,7 @@ export default function TasksPage() {
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"list" | "hierarchy">("hierarchy")
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
+  const [sortBy, setSortBy] = useState<"priority" | "dueDate" | "status">("priority")
   
   // Delete confirmation state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -209,33 +217,53 @@ export default function TasksPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "OPEN": return "bg-gray-100 text-gray-800"
-      case "IN_PROGRESS": return "bg-blue-100 text-blue-800"
-      case "REVIEW": return "bg-yellow-100 text-yellow-800"
-      case "DONE": return "bg-green-100 text-green-800"
-      case "CLOSED": return "bg-gray-100 text-gray-800"
-      default: return "bg-gray-100 text-gray-800"
+      case "OPEN": return "bg-slate-100 text-slate-800 border-slate-200"
+      case "IN_PROGRESS": return "bg-blue-50 text-blue-800 border-blue-200"
+      case "REVIEW": return "bg-amber-50 text-amber-800 border-amber-200"
+      case "DONE": return "bg-emerald-50 text-emerald-800 border-emerald-200"
+      case "CLOSED": return "bg-slate-100 text-slate-800 border-slate-200"
+      default: return "bg-slate-100 text-slate-800 border-slate-200"
     }
   }
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case "LOW": return "bg-green-100 text-green-800"
-      case "MEDIUM": return "bg-yellow-100 text-yellow-800"
-      case "HIGH": return "bg-orange-100 text-orange-800"
-      case "URGENT": return "bg-red-100 text-red-800"
-      default: return "bg-gray-100 text-gray-800"
+      case "LOW": return "bg-emerald-50 text-emerald-800 border-emerald-200"
+      case "MEDIUM": return "bg-amber-50 text-amber-800 border-amber-200"
+      case "HIGH": return "bg-orange-50 text-orange-800 border-orange-200"
+      case "URGENT": return "bg-rose-50 text-rose-800 border-rose-200"
+      default: return "bg-slate-100 text-slate-800 border-slate-200"
     }
   }
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "OPEN": return <Circle className="h-4 w-4" />
-      case "IN_PROGRESS": return <Clock className="h-4 w-4" />
-      case "REVIEW": return <AlertTriangle className="h-4 w-4" />
-      case "DONE": return <CheckCircle className="h-4 w-4" />
-      default: return <Circle className="h-4 w-4" />
+      case "OPEN": return <Circle className="h-4 w-4 text-slate-500" />
+      case "IN_PROGRESS": return <Clock className="h-4 w-4 text-blue-500" />
+      case "REVIEW": return <AlertTriangle className="h-4 w-4 text-amber-500" />
+      case "DONE": return <CheckCircle className="h-4 w-4 text-emerald-500" />
+      default: return <Circle className="h-4 w-4 text-slate-500" />
     }
+  }
+
+  const getPriorityIcon = (priority: string) => {
+    switch (priority) {
+      case "LOW": return <Flag className="h-4 w-4 text-emerald-500" />
+      case "MEDIUM": return <Flag className="h-4 w-4 text-amber-500" />
+      case "HIGH": return <Flag className="h-4 w-4 text-orange-500" />
+      case "URGENT": return <Flag className="h-4 w-4 text-rose-500" />
+      default: return <Flag className="h-4 w-4 text-slate-500" />
+    }
+  }
+
+  // Calculate task completion percentage
+  const calculateProgress = (task: Task) => {
+    if (task.subtasks.length === 0) {
+      return task.status === "DONE" ? 100 : 0;
+    }
+    
+    const completedSubtasks = task.subtasks.filter(subtask => subtask.status === "DONE").length;
+    return Math.round((completedSubtasks / task.subtasks.length) * 100);
   }
 
   // Group tasks by parent-child relationships
@@ -265,152 +293,184 @@ export default function TasksPage() {
     return Array.from(taskMap.values())
   }
 
-  // Updated renderTaskCard function with improved hierarchy design
+  // Sort tasks based on selected criteria
+  const sortTasks = (tasks: Task[]) => {
+    const priorityOrder = { "URGENT": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3 }
+    const statusOrder = { "OPEN": 0, "IN_PROGRESS": 1, "REVIEW": 2, "DONE": 3, "CLOSED": 4 }
+    
+    return [...tasks].sort((a, b) => {
+      if (sortBy === "priority") {
+        return priorityOrder[a.priority as keyof typeof priorityOrder] - priorityOrder[b.priority as keyof typeof priorityOrder]
+      } else if (sortBy === "dueDate") {
+        if (!a.dueDate) return 1
+        if (!b.dueDate) return -1
+        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+      } else if (sortBy === "status") {
+        return statusOrder[a.status as keyof typeof statusOrder] - statusOrder[b.status as keyof typeof statusOrder]
+      }
+      return 0
+    })
+  }
+
+  // Enhanced renderTaskCard function with premium hierarchy design
   const renderTaskCard = (task: Task & { children?: Task[] }, level = 0) => {
     const isExpanded = expandedTasks.has(task.id)
     const hasChildren = task.children && task.children.length > 0
+    const progress = calculateProgress(task)
     
     // Calculate indentation based on level
-    const indentWidth = level * 24
+    const indentWidth = level * 32
     
     return (
-      <div key={task.id} className="space-y-2">
+      <div key={task.id} className="space-y-3">
         <Card 
-          className={`hover:shadow-md transition-all duration-200 overflow-hidden ${
-            level > 0 ? 'ml-6 border-l-4 border-l-blue-200' : ''
+          className={`hover:shadow-lg transition-all duration-300 overflow-hidden border-0 shadow-sm ${
+            level === 0 ? 'bg-gradient-to-br from-white to-slate-50' : 'bg-white'
           }`}
         >
-          <CardContent className="p-4">
-            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-              <div className="flex-1 space-y-3">
+          <CardContent className="p-5">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+              <div className="flex-1 space-y-4">
                 {/* Hierarchy connector and title section */}
                 <div className="flex items-start gap-3">
                   {/* Hierarchy connector and expand/collapse button */}
                   <div className="flex flex-col items-center mt-1">
                     {level > 0 && (
-                      <div className="h-6 w-px bg-border"></div>
+                      <div className="h-6 w-px bg-slate-200"></div>
                     )}
                     {hasChildren && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 w-6 p-0"
+                        className="h-7 w-7 p-0 rounded-full bg-slate-100 hover:bg-slate-200"
                         onClick={() => toggleTaskExpansion(task.id)}
                       >
                         {isExpanded ?
-                          <ChevronDown className="h-4 w-4" /> :
-                          <ChevronRight className="h-4 w-4" />
+                          <ChevronDown className="h-4 w-4 text-slate-600" /> :
+                          <ChevronRight className="h-4 w-4 text-slate-600" />
                         }
                       </Button>
                     )}
                     {!hasChildren && level > 0 && (
-                      <div className="h-6 w-6 flex items-center justify-center">
-                        <div className="h-2 w-2 rounded-full bg-border"></div>
+                      <div className="h-7 w-7 flex items-center justify-center">
+                        <div className="h-2 w-2 rounded-full bg-slate-300"></div>
                       </div>
                     )}
                   </div>
                   
                   {/* Status icon and title */}
                   <div className="flex-1">
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-3">
                       {getStatusIcon(task.status)}
                       <div className="flex-1">
-                        <h3 className="font-semibold text-lg">{task.title}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-xl tracking-tight">{task.title}</h3>
+                          <Badge variant="outline" className={getPriorityColor(task.priority)}>
+                            {getPriorityIcon(task.priority)}
+                            <span className="ml-1">{task.priority}</span>
+                          </Badge>
+                        </div>
+                        
                         {hasChildren && (
-                          <span className="text-xs text-muted-foreground ml-2">
-                            {task.children?.length} subtask{task.children?.length !== 1 ? 's' : ''}
-                          </span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-slate-500 font-medium">
+                              {task.children?.length} subtask{task.children?.length !== 1 ? 's' : ''}
+                            </span>
+                            <div className="w-24">
+                              <Progress value={progress} className="h-1.5" />
+                            </div>
+                            <span className="text-xs text-slate-500 font-medium">{progress}%</span>
+                          </div>
                         )}
                       </div>
                     </div>
                     
                     {/* Parent task info for subtasks */}
                     {level > 0 && task.parentTask && (
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
-                        <FileText className="h-3 w-3" />
+                      <div className="flex items-center gap-1 text-sm text-slate-500 mt-2 ml-7">
+                        <FileText className="h-3.5 w-3.5" />
                         <span>Subtask of: {task.parentTask.title}</span>
                       </div>
                     )}
                   </div>
                 </div>
                 
-                <p className="text-muted-foreground text-sm line-clamp-2 ml-9">
+                <p className="text-slate-600 text-sm line-clamp-2 ml-10">
                   {task.description}
                 </p>
                 
-                <div className="flex flex-wrap gap-2 ml-9">
-                  <Badge className={getStatusColor(task.status)}>
+                <div className="flex flex-wrap gap-2 ml-10">
+                  <Badge variant="outline" className={getStatusColor(task.status)}>
                     {task.status.replace("_", " ")}
                   </Badge>
-                  <Badge className={getPriorityColor(task.priority)}>
-                    {task.priority}
-                  </Badge>
                   {task.taskTags.map((taskTag, index) => (
-                    <Badge key={index} variant="outline">
+                    <Badge key={index} variant="outline" className="bg-slate-50 text-slate-700 border-slate-200">
+                      <Tag className="h-3 w-3 mr-1" />
                       {taskTag.tag.name}
                     </Badge>
                   ))}
                 </div>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm ml-9">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm ml-10">
                   <div className="flex items-center gap-2">
-                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                    <span className="truncate">
+                    <FolderOpen className="h-4 w-4 text-slate-500" />
+                    <span className="font-medium text-slate-700">
                       {task.project?.name || "No project"}
                     </span>
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <span>
+                    <Calendar className="h-4 w-4 text-slate-500" />
+                    <span className={task.dueDate && new Date(task.dueDate) < new Date() ? "text-rose-600 font-medium" : "text-slate-700"}>
                       {task.dueDate ? format(new Date(task.dueDate), "MMM d, yyyy") : "No due date"}
                     </span>
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-muted-foreground" />
+                    <Users className="h-4 w-4 text-slate-500" />
                     <div className="flex items-center gap-1">
                       {task.assignees && task.assignees.length > 0 ? (
                         <>
                           <div className="flex -space-x-2">
                             {task.assignees.slice(0, 3).map((assignee, index) => (
-                              <Avatar key={assignee.user.id} className="h-6 w-6 border-2 border-background">
+                              <Avatar key={assignee.user.id} className="h-6 w-6 border-2 border-white">
                                 <AvatarImage src={assignee.user.avatar || ""} />
-                                <AvatarFallback className="text-xs">
+                                <AvatarFallback className="text-xs bg-slate-100 text-slate-700">
                                   {assignee.user.name?.charAt(0) || assignee.user.email.charAt(0)}
                                 </AvatarFallback>
                               </Avatar>
                             ))}
                           </div>
                           {task.assignees.length > 3 && (
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-xs text-slate-500 font-medium">
                               +{task.assignees.length - 3} more
                             </span>
                           )}
                         </>
                       ) : (
-                        <span className="text-muted-foreground">Unassigned</span>
+                        <span className="text-slate-500">Unassigned</span>
                       )}
                     </div>
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                    <span>{task._count.comments} comments</span>
+                    <MessageSquare className="h-4 w-4 text-slate-500" />
+                    <span className="text-slate-700">{task._count.comments} comments</span>
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    <Paperclip className="h-4 w-4 text-muted-foreground" />
-                    <span>{task._count.attachments} attachments</span>
+                    <Paperclip className="h-4 w-4 text-slate-500" />
+                    <span className="text-slate-700">{task._count.attachments} attachments</span>
                   </div>
                 </div>
                 
                 {/* Quick status change buttons */}
-                <div className="flex flex-wrap gap-2 pt-2 ml-9">
+                <div className="flex flex-wrap gap-2 pt-2 ml-10">
                   <Button
                     size="sm"
                     variant={task.status === "OPEN" ? "default" : "outline"}
                     onClick={() => handleStatusChange(task.id, "OPEN")}
+                    className="text-xs"
                   >
                     Open
                   </Button>
@@ -418,6 +478,7 @@ export default function TasksPage() {
                     size="sm"
                     variant={task.status === "IN_PROGRESS" ? "default" : "outline"}
                     onClick={() => handleStatusChange(task.id, "IN_PROGRESS")}
+                    className="text-xs"
                   >
                     In Progress
                   </Button>
@@ -425,6 +486,7 @@ export default function TasksPage() {
                     size="sm"
                     variant={task.status === "REVIEW" ? "default" : "outline"}
                     onClick={() => handleStatusChange(task.id, "REVIEW")}
+                    className="text-xs"
                   >
                     Review
                   </Button>
@@ -432,6 +494,7 @@ export default function TasksPage() {
                     size="sm"
                     variant={task.status === "DONE" ? "default" : "outline"}
                     onClick={() => handleStatusChange(task.id, "DONE")}
+                    className="text-xs"
                   >
                     Done
                   </Button>
@@ -439,34 +502,36 @@ export default function TasksPage() {
                     size="sm"
                     variant={task.status === "CLOSED" ? "default" : "outline"}
                     onClick={() => handleStatusChange(task.id, "CLOSED")}
+                    className="text-xs"
                   >
                     Closed
                   </Button>
                 </div>
               </div>
               
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/tasks/${task.id}`}>View</Link>
+              <div className="flex flex-col gap-2">
+                <Button variant="outline" size="sm" asChild className="text-sm">
+                  <Link href={`/tasks/${task.id}`}>View Details</Link>
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuLabel>Actions</DropdownMenuLabel>
                     <DropdownMenuItem asChild>
-                      <Link href={`/tasks/${task.id}/edit`}>Edit</Link>
+                      <Link href={`/tasks/${task.id}/edit`}>Edit Task</Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem>Duplicate</DropdownMenuItem>
+                    <DropdownMenuItem>Duplicate Task</DropdownMenuItem>
+                    <DropdownMenuItem>Add Subtask</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      className="text-red-600"
+                      className="text-rose-600"
                       onClick={() => handleDeleteClick(task)}
                     >
-                      Delete
+                      Delete Task
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -479,9 +544,9 @@ export default function TasksPage() {
         {hasChildren && isExpanded && (
           <div className="relative">
             {/* Vertical connector line */}
-            <div className="absolute left-6 top-0 bottom-0 w-px bg-border"></div>
+            <div className="absolute left-6 top-0 bottom-0 w-px bg-slate-200"></div>
             
-            <div className="ml-6 space-y-2">
+            <div className="ml-6 space-y-3">
               {task.children?.map(childTask =>
                 renderTaskCard(childTask, level + 1)
               )}
@@ -496,7 +561,7 @@ export default function TasksPage() {
     return (
       <MainLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin" />
+          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
         </div>
       </MainLayout>
     )
@@ -507,7 +572,7 @@ export default function TasksPage() {
       <MainLayout>
         <div className="flex items-center justify-center min-h-screen">
           <div className="text-center">
-            <p className="text-destructive text-lg mb-4">{error}</p>
+            <p className="text-rose-600 text-lg mb-4">{error}</p>
             <Button onClick={fetchTasks}>Retry</Button>
           </div>
         </div>
@@ -515,51 +580,114 @@ export default function TasksPage() {
     )
   }
 
-  // Group tasks by hierarchy
-  const hierarchicalTasks = viewMode === "hierarchy" ? groupTasksByHierarchy(tasks) : tasks
+  // Group tasks by hierarchy and sort them
+  const hierarchicalTasks = viewMode === "hierarchy" 
+    ? sortTasks(groupTasksByHierarchy(tasks)) 
+    : sortTasks(tasks)
 
   return (
     <MainLayout>
-      <div className="space-y-6">
+      <div className="space-y-8">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Tasks</h1>
-            <p className="text-muted-foreground">
-              Manage and track all your tasks in one place
+            <h1 className="text-3xl font-bold tracking-tight">Task Management</h1>
+            <p className="text-slate-500 mt-1">
+              Organize, track, and manage all your tasks efficiently
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-3">
             <Button
               variant={viewMode === "list" ? "default" : "outline"}
               onClick={() => setViewMode("list")}
+              className="gap-2"
             >
+              <BarChart3 className="h-4 w-4" />
               List View
             </Button>
             <Button
               variant={viewMode === "hierarchy" ? "default" : "outline"}
               onClick={() => setViewMode("hierarchy")}
+              className="gap-2"
             >
+              <Layers className="h-4 w-4" />
               Hierarchy View
             </Button>
-            <Button asChild>
+            <Button asChild className="gap-2">
               <Link href="/tasks/create">
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="h-4 w-4" />
                 New Task
               </Link>
             </Button>
           </div>
         </div>
         
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card className="border-0 shadow-sm bg-gradient-to-br from-blue-50 to-indigo-50">
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-blue-800">Total Tasks</p>
+                  <p className="text-2xl font-bold text-blue-900">{tasks.length}</p>
+                </div>
+                <Target className="h-8 w-8 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-0 shadow-sm bg-gradient-to-br from-amber-50 to-orange-50">
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-amber-800">In Progress</p>
+                  <p className="text-2xl font-bold text-amber-900">
+                    {tasks.filter(t => t.status === "IN_PROGRESS").length}
+                  </p>
+                </div>
+                <Clock className="h-8 w-8 text-amber-600" />
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-0 shadow-sm bg-gradient-to-br from-emerald-50 to-teal-50">
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-emerald-800">Completed</p>
+                  <p className="text-2xl font-bold text-emerald-900">
+                    {tasks.filter(t => t.status === "DONE").length}
+                  </p>
+                </div>
+                <CheckCircle className="h-8 w-8 text-emerald-600" />
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-0 shadow-sm bg-gradient-to-br from-rose-50 to-pink-50">
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-rose-800">Overdue</p>
+                  <p className="text-2xl font-bold text-rose-900">
+                    {tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date()).length}
+                  </p>
+                </div>
+                <AlertTriangle className="h-8 w-8 text-rose-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        
         {/* Filters */}
-        <Card>
+        <Card className="border-0 shadow-sm">
           <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col lg:flex-row gap-4">
               <div className="flex-1">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
                   <Input
-                    placeholder="Search tasks..."
+                    placeholder="Search tasks by title, description, or tags..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     onKeyPress={(e) => {
@@ -567,7 +695,7 @@ export default function TasksPage() {
                         handleSearch()
                       }
                     }}
-                    className="pl-10"
+                    className="pl-10 bg-slate-50 border-slate-200 focus:bg-white"
                   />
                 </div>
               </div>
@@ -578,7 +706,7 @@ export default function TasksPage() {
                   fetchTasks()
                 }}
               >
-                <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectTrigger className="w-full lg:w-[180px] bg-slate-50 border-slate-200 focus:bg-white">
                   <SelectValue placeholder="Filter by status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -597,7 +725,7 @@ export default function TasksPage() {
                   fetchTasks()
                 }}
               >
-                <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectTrigger className="w-full lg:w-[180px] bg-slate-50 border-slate-200 focus:bg-white">
                   <SelectValue placeholder="Filter by priority" />
                 </SelectTrigger>
                 <SelectContent>
@@ -608,9 +736,22 @@ export default function TasksPage() {
                   <SelectItem value="URGENT">Urgent</SelectItem>
                 </SelectContent>
               </Select>
-              <Button onClick={handleSearch} className="w-full sm:w-auto">
-                <Filter className="mr-2 h-4 w-4" />
-                Apply
+              <Select
+                value={sortBy}
+                onValueChange={(value) => setSortBy(value as "priority" | "dueDate" | "status")}
+              >
+                <SelectTrigger className="w-full lg:w-[180px] bg-slate-50 border-slate-200 focus:bg-white">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="priority">Priority</SelectItem>
+                  <SelectItem value="dueDate">Due Date</SelectItem>
+                  <SelectItem value="status">Status</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button onClick={handleSearch} className="w-full lg:w-auto gap-2">
+                <Filter className="h-4 w-4" />
+                Apply Filters
               </Button>
             </div>
           </CardContent>
@@ -623,23 +764,35 @@ export default function TasksPage() {
             hierarchicalTasks.map(task => renderTaskCard(task))
           ) : (
             // Render flat list
-            tasks.map(task => renderTaskCard(task))
+            hierarchicalTasks.map(task => renderTaskCard(task))
           )}
         </div>
         
         {tasks.length === 0 && !loading && (
-          <Card>
+          <Card className="border-0 shadow-sm bg-slate-50">
             <CardContent className="pt-6">
-              <div className="text-center py-8">
-                <p className="text-muted-foreground">No tasks found matching your filters.</p>
-                <Button variant="outline" className="mt-4" onClick={() => {
-                  setSearchTerm("")
-                  setStatusFilter("all")
-                  setPriorityFilter("all")
-                  fetchTasks()
-                }}>
-                  Clear Filters
-                </Button>
+              <div className="text-center py-12">
+                <div className="flex justify-center mb-4">
+                  <Target className="h-12 w-12 text-slate-400" />
+                </div>
+                <p className="text-slate-500 text-lg mb-2">No tasks found</p>
+                <p className="text-slate-400 mb-6">Try adjusting your filters or create a new task</p>
+                <div className="flex justify-center gap-3">
+                  <Button variant="outline" onClick={() => {
+                    setSearchTerm("")
+                    setStatusFilter("all")
+                    setPriorityFilter("all")
+                    fetchTasks()
+                  }}>
+                    Clear Filters
+                  </Button>
+                  <Button asChild>
+                    <Link href="/tasks/create">
+                      <Plus className="mr-2 h-4 w-4" />
+                      New Task
+                    </Link>
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

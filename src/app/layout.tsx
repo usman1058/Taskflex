@@ -5,6 +5,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { SessionProvider } from "@/components/providers";
 import { Suspense } from "react";
+import FloatingVoiceButton from '@/components/FloatingVoiceButton';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -55,6 +56,7 @@ export default function RootLayout({
         <SessionProvider>
           <Suspense fallback={<LoadingFallback />}>
             {children}
+            <FloatingVoiceButton />
           </Suspense>
           <Toaster />
         </SessionProvider>
