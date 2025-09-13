@@ -79,7 +79,7 @@ export const useGeminiAI = (apiKey: string): UseGeminiAIReturn => {
 
     // hooks/useGeminiAI.ts
 
-    const processGeminiConversation = async (message: string): Promise<string> => {
+    const processGeminiConversation = async (message: string, apiKey: string): Promise<string> => {
         const response = await fetch('/api/gemini', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

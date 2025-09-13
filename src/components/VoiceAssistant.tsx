@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { useRealtimeMicrophone } from '@/hooks/useRealtimeMicrophone';
-import { useGeminiAI } from '@/hooks/useGeminiAI';
+import { useGeminiAI } from '@/hooks/useGeminiAi';
 import { VoiceIndicator } from './VoiceIndicator';
 
 const VoiceAssistant = () => {
