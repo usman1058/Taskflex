@@ -43,7 +43,7 @@ const VoiceAssistant = () => {
   } = useRealtimeMicrophone();
   
   // Replace with your actual Gemini API key
-  const { processMessage, isLoading: isGeminiLoading } = useGeminiAI('YOUR_GEMINI_API_KEY');
+  const { processMessage, isLoading: isGeminiLoading } = useGeminiAI();
   
   const conversationEndRef = useRef<HTMLDivElement>(null);
   

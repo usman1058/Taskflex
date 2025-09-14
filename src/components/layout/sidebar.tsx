@@ -37,70 +37,73 @@ import {
 import { useSession } from "next-auth/react"
 import { useState, useEffect } from "react"
 import { signOut } from "next-auth/react"
+import { useMemo } from "react"
 
-const sidebarNavItems = [
-  {
-    title: "Dashboard",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Tasks",
-    href: "/tasks",
-    icon: CheckSquare,
-  },
-  {
-    title: "Create Task",
-    href: "/tasks/create",
-    icon: Plus,
-  },
-  {
-    title: "Projects",
-    href: "/projects",
-    icon: Briefcase,
-  },
-  {
-    title: "Organizations",
-    href: "/organizations",
-    icon: Home,
-  },
-  {
-    title: "Search",
-    href: "/search",
-    icon: Search,
-  },
-  {
-    title: "Calendar",
-    href: "/calendar",
-    icon: Calendar,
-  },
-  {
-    title: "Analytics",
-    href: "/analytics",
-    icon: BarChart3,
-  },
-  {
-    title: "Teams",
-    href: "/teams",
-    icon: Users,
-  },
-  {
-    title: "Notifications",
-    href: "/notifications",
-    icon: Bell,
-    notificationCount: 3, // This would be dynamic
-  },
-  {
-    title: "Profile",
-    href: "/profile",
-    icon: User,
-  },
-  {
-    title: "Settings",
-    href: "/settings",
-    icon: Settings,
-  },
-]
+function useSidebarNavItems(notificationCount: number = 0) {
+  return useMemo(() => [
+    {
+      title: "Dashboard",
+      href: "/dashboard",
+      icon: LayoutDashboard,
+    },
+    {
+      title: "Tasks",
+      href: "/tasks",
+      icon: CheckSquare,
+    },
+    {
+      title: "Create Task",
+      href: "/tasks/create",
+      icon: Plus,
+    },
+    {
+      title: "Projects",
+      href: "/projects",
+      icon: Briefcase,
+    },
+    {
+      title: "Organizations",
+      href: "/organizations",
+      icon: Home,
+    },
+    {
+      title: "Search",
+      href: "/search",
+      icon: Search,
+    },
+    {
+      title: "Calendar",
+      href: "/calendar",
+      icon: Calendar,
+    },
+    {
+      title: "Analytics",
+      href: "/analytics",
+      icon: BarChart3,
+    },
+    {
+      title: "Teams",
+      href: "/teams",
+      icon: Users,
+    },
+    {
+      title: "Notifications",
+      href: "/notifications",
+      icon: Bell,
+      notificationCount: notificationCount > 0 ? notificationCount : undefined,
+    },
+    {
+      title: "Profile",
+      href: "/profile",
+      icon: User,
+    },
+    {
+      title: "Settings",
+      href: "/settings",
+      icon: Settings,
+    },
+  ], [notificationCount])
+}
 
 const favoriteItems = [
   {
@@ -133,6 +136,7 @@ export function Sidebar({ className, isCollapsed, onToggle, isMobile, onClose }:
   const router = useRouter()
   const { data: session } = useSession()
   const [searchQuery, setSearchQuery] = useState("")
+  const sidebarNavItems = useSidebarNavItems()
   const [filteredItems, setFilteredItems] = useState(sidebarNavItems)
   
   useEffect(() => {
@@ -140,13 +144,12 @@ export function Sidebar({ className, isCollapsed, onToggle, isMobile, onClose }:
       setFilteredItems(sidebarNavItems)
     } else {
       const query = searchQuery.toLowerCase()
-      const filtered = sidebarNavItems.filter(item => 
+      const filtered = sidebarNavItems.filter(item =>
         item.title.toLowerCase().includes(query)
       )
       setFilteredItems(filtered)
     }
-  }, [searchQuery])
-  
+  }, [searchQuery, sidebarNavItems])
   const handleLogoClick = () => {
     if (isCollapsed) {
       onToggle()

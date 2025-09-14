@@ -7,6 +7,8 @@ import { Sidebar } from "./sidebar"
 import { Header } from "./header"
 import { cn } from "@/lib/utils"
 import { OrganizationProvider, useOrganization } from "@/contexts/organization-context"
+import { ThemeProvider } from "@/contexts/theme-context"
+
 interface MainLayoutProps {
   children: React.ReactNode
 }
@@ -97,8 +99,10 @@ function MainLayoutContent({ children }: MainLayoutProps) {
 
 export function MainLayout({ children }: MainLayoutProps) {
   return (
-    <OrganizationProvider>
-      <MainLayoutContent>{children}</MainLayoutContent>
-    </OrganizationProvider>
+    <ThemeProvider defaultTheme="system" storageKey="taskflow-theme">
+      <OrganizationProvider>
+        <MainLayoutContent>{children}</MainLayoutContent>
+      </OrganizationProvider>
+    </ThemeProvider>
   )
 }

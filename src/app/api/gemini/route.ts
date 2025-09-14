@@ -11,12 +11,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Gemini API key is not configured' }, { status: 500 });
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+    // Use the correct endpoint and model
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent`;
     
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
         contents: [{
@@ -27,12 +29,20 @@ export async function POST(request: NextRequest) {
             
             User message: ${message}`
           }]
-        }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024,
+        }
       })
     });
 
     if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error('Gemini API error response:', errorText);
+      return NextResponse.json({ error: `Gemini API error: ${response.statusText}` }, { status: 500 });
     }
 
     const data = await response.json();
@@ -43,7 +53,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ text: data.candidates[0].content.parts[0].text });
     }
     
-    throw new Error('Invalid response from Gemini API');
+    return NextResponse.json({ error: 'Invalid response from Gemini API' }, { status: 500 });
   } catch (error) {
     console.error('Gemini API error:', error);
     return NextResponse.json({ error: 'Failed to process message' }, { status: 500 });

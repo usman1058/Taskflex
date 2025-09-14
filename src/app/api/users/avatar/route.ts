@@ -33,21 +33,38 @@ export async function POST(request: NextRequest) {
       console.log("Upload directory already exists")
     }
     
-    // Generate unique filename
-    const fileName = `${session.user.id}-${Date.now()}-${file.name}`
+    // Generate unique filename with timestamp to prevent caching
+    const timestamp = Date.now()
+    const fileName = `${session.user.id}-${timestamp}-${file.name}`
     const path = join(uploadDir, fileName)
     
     // Save file
     await writeFile(path, buffer)
+    console.log(`File saved to ${path}`)
     
-    // Update user avatar in database
-    const avatarUrl = `/uploads/avatars/${fileName}`
-    await db.user.update({
+    // Update user avatar in database with cache-busting URL
+    const avatarUrl = `/uploads/avatars/${fileName}?t=${timestamp}`
+    const updatedUser = await db.user.update({
       where: { id: session.user.id },
-      data: { avatar: avatarUrl }
+      data: { avatar: avatarUrl },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatar: true,
+        role: true,
+        status: true,
+        bio: true,
+        location: true,
+        website: true,
+        timezone: true,
+        createdAt: true,
+        updatedAt: true
+      }
     })
     
-    return NextResponse.json({ avatarUrl })
+    console.log(`User avatar updated to: ${avatarUrl}`)
+    return NextResponse.json({ avatarUrl, user: updatedUser })
   } catch (error) {
     console.error("Error uploading avatar:", error)
     return NextResponse.json(

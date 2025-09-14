@@ -13,12 +13,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
-import { 
-  User, 
-  Mail, 
-  Calendar, 
-  Edit, 
-  Save, 
+import {
+  User,
+  Mail,
+  Calendar,
+  Edit,
+  Save,
   X,
   CheckCircle,
   Clock,
@@ -115,18 +115,33 @@ export default function ProfilePage() {
     fetchConnectedAccounts()
   }, [])
 
+
+  useEffect(() => {
+    if (user && user.avatar) {
+      // Verify the avatar URL is accessible
+      const img = new Image();
+      img.onload = () => {
+        console.log("Avatar image loaded successfully");
+      };
+      img.onerror = () => {
+        console.error("Failed to load avatar image:", user.avatar);
+      };
+      img.src = user.avatar;
+    }
+  }, [user?.avatar]);
+
   const fetchUserProfile = async () => {
     try {
       setLoading(true)
       setError(null)
-      
+
       const response = await fetch("/api/users/profile")
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || `Failed to fetch profile: ${response.status}`)
       }
-      
+
       const userData = await response.json()
       setUser(userData)
       setFormData({
@@ -200,7 +215,7 @@ export default function ProfilePage() {
   const handleSave = async () => {
     try {
       setSaving(true)
-      
+
       const response = await fetch("/api/users/profile", {
         method: "PUT",
         headers: {
@@ -208,15 +223,15 @@ export default function ProfilePage() {
         },
         body: JSON.stringify(formData),
       })
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || "Failed to update profile")
       }
-      
+
       const updatedUser = await response.json()
       setUser(updatedUser)
-      
+
       // Update session if name changed
       if (session && session.user && formData.name !== session.user.name) {
         await update({
@@ -227,7 +242,7 @@ export default function ProfilePage() {
           }
         })
       }
-      
+
       setIsEditing(false)
       toast.success("Profile updated successfully")
     } catch (error) {
@@ -252,35 +267,42 @@ export default function ProfilePage() {
     setIsEditing(false)
   }
 
+
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    
+
     try {
       setAvatarUploading(true)
-      
+
       const formData = new FormData()
       formData.append("avatar", file)
-      
+
       const response = await fetch("/api/users/avatar", {
         method: "POST",
         body: formData,
       })
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || "Failed to upload avatar")
       }
-      
+
       const data = await response.json()
-      
+
+      // Update the user state with the new avatar URL and full user data
       if (user) {
         setUser({
           ...user,
           avatar: data.avatarUrl,
         })
       }
-      
+
+      // Force update the entire user object if provided
+      if (data.user) {
+        setUser(data.user)
+      }
+
       // Update session if avatar changed
       if (session && session.user) {
         await update({
@@ -291,8 +313,19 @@ export default function ProfilePage() {
           }
         })
       }
-      
+
+      // Dispatch custom event to notify other components about avatar update
+      if (typeof window !== 'undefined') {
+        const event = new CustomEvent('avatarUpdated', {
+          detail: { avatarUrl: data.avatarUrl }
+        });
+        window.dispatchEvent(event);
+      }
+
       toast.success("Avatar updated successfully")
+
+      // Reset the file input to allow uploading the same file again if needed
+      e.target.value = ''
     } catch (error) {
       console.error("Error uploading avatar:", error)
       toast.error(error instanceof Error ? error.message : "Failed to upload avatar")
@@ -310,17 +343,17 @@ export default function ProfilePage() {
         },
         body: JSON.stringify({ id, enabled }),
       })
-      
+
       if (!response.ok) {
         throw new Error("Failed to update notification settings")
       }
-      
-      setNotificationSettings(prev => 
-        prev.map(setting => 
+
+      setNotificationSettings(prev =>
+        prev.map(setting =>
           setting.id === id ? { ...setting, enabled } : setting
         )
       )
-      
+
       toast.success("Notification settings updated")
     } catch (error) {
       console.error("Error updating notification settings:", error)
@@ -333,17 +366,17 @@ export default function ProfilePage() {
       const response = await fetch(`/api/users/connected-accounts/${id}`, {
         method: "DELETE",
       })
-      
+
       if (!response.ok) {
         throw new Error("Failed to disconnect account")
       }
-      
-      setConnectedAccounts(prev => 
-        prev.map(account => 
+
+      setConnectedAccounts(prev =>
+        prev.map(account =>
           account.id === id ? { ...account, connected: false } : account
         )
       )
-      
+
       toast.success("Account disconnected successfully")
     } catch (error) {
       console.error("Error disconnecting account:", error)
@@ -377,7 +410,7 @@ export default function ProfilePage() {
     const date = new Date(dateString)
     const now = new Date()
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-    
+
     if (diffInSeconds < 60) return "just now"
     if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`
     if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`
@@ -482,7 +515,7 @@ export default function ProfilePage() {
                 <TabsTrigger value="activity">Activity</TabsTrigger>
                 <TabsTrigger value="settings">Settings</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="overview" className="space-y-6">
                 {/* Profile Information */}
                 <Card className="border-none shadow-sm">
@@ -498,7 +531,15 @@ export default function ProfilePage() {
                       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
                         <div className="relative">
                           <Avatar className="h-24 w-24">
-                            <AvatarImage src={user.avatar || ""} />
+                            <AvatarImage
+                              src={user.avatar || ""}
+                              alt={user.name}
+                              key={user.avatar} // Force re-render when avatar changes
+                              onError={(e) => {
+                                // If image fails to load, hide it and show the fallback
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
                             <AvatarFallback className="text-2xl">
                               {user.name.charAt(0).toUpperCase()}
                             </AvatarFallback>
@@ -541,7 +582,7 @@ export default function ProfilePage() {
                           </div>
                         </div>
                       </div>
-                      
+
                       {/* Form Fields */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
@@ -566,7 +607,7 @@ export default function ProfilePage() {
                           />
                         </div>
                       </div>
-                      
+
                       <div>
                         <Label htmlFor="bio">Bio</Label>
                         <Textarea
@@ -579,7 +620,7 @@ export default function ProfilePage() {
                           placeholder="Tell us a bit about yourself..."
                         />
                       </div>
-                      
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="location">Location</Label>
@@ -611,7 +652,7 @@ export default function ProfilePage() {
                           </div>
                         </div>
                       </div>
-                      
+
                       <div>
                         <Label htmlFor="timezone">Timezone</Label>
                         <div className="relative mt-1">
@@ -626,7 +667,7 @@ export default function ProfilePage() {
                           />
                         </div>
                       </div>
-                      
+
                       {isEditing && (
                         <div className="flex gap-2 pt-2">
                           <Button onClick={handleSave} disabled={saving}>
@@ -651,7 +692,7 @@ export default function ProfilePage() {
                     </div>
                   </CardContent>
                 </Card>
-                
+
                 {/* Stats */}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   {stats.map((stat) => (
@@ -671,7 +712,7 @@ export default function ProfilePage() {
                   ))}
                 </div>
               </TabsContent>
-              
+
               <TabsContent value="activity" className="space-y-6">
                 <Card className="border-none shadow-sm">
                   <CardHeader>
@@ -709,7 +750,7 @@ export default function ProfilePage() {
                   </CardContent>
                 </Card>
               </TabsContent>
-              
+
               <TabsContent value="settings" className="space-y-6">
                 <Card className="border-none shadow-sm">
                   <CardHeader>
@@ -739,9 +780,9 @@ export default function ProfilePage() {
                         </div>
                       ))}
                     </div>
-                    
+
                     <Separator />
-                    
+
                     <div className="space-y-4">
                       <h3 className="text-lg font-medium">Security</h3>
                       <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -773,9 +814,9 @@ export default function ProfilePage() {
                         </Button>
                       </div>
                     </div>
-                    
+
                     <Separator />
-                    
+
                     <div className="space-y-4">
                       <h3 className="text-lg font-medium">Connected Accounts</h3>
                       {connectedAccounts.map((account) => (
@@ -790,9 +831,9 @@ export default function ProfilePage() {
                             </div>
                           </div>
                           {account.connected ? (
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
+                            <Button
+                              variant="outline"
+                              size="sm"
                               onClick={() => handleDisconnectAccount(account.id)}
                             >
                               Disconnect
@@ -810,7 +851,7 @@ export default function ProfilePage() {
               </TabsContent>
             </Tabs>
           </div>
-          
+
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Quick Info */}
@@ -833,7 +874,7 @@ export default function ProfilePage() {
                 </div>
               </CardContent>
             </Card>
-            
+
             {/* Skills */}
             <Card className="border-none shadow-sm">
               <CardHeader>
@@ -854,7 +895,7 @@ export default function ProfilePage() {
                 </div>
               </CardContent>
             </Card>
-            
+
             {/* Connected Accounts */}
             <Card className="border-none shadow-sm">
               <CardHeader>

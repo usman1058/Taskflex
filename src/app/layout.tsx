@@ -56,7 +56,7 @@ export default function RootLayout({
         <SessionProvider>
           <Suspense fallback={<LoadingFallback />}>
             {children}
-            <FloatingVoiceButton />
+            {/* <FloatingVoiceButton /> */}
           </Suspense>
           <Toaster />
         </SessionProvider>

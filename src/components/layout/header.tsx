@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { NotificationBell } from "./notification-bell"
 import { LogOut, User, Settings, Menu, Search, HelpCircle, Plus, ChevronDown, ArrowLeft, CheckSquare, FolderOpen, Users } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -21,6 +21,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { OrganizationSwitcher } from "./organization-switcher"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 interface HeaderProps {
   onMobileMenuToggle: () => void
@@ -29,22 +30,52 @@ interface HeaderProps {
 }
 
 export function Header({ onMobileMenuToggle, currentOrganization, isOrganizationPage }: HeaderProps) {
-  const { data: session } = useSession()
+  const { data: session, update: updateSession } = useSession()
   const [searchOpen, setSearchOpen] = useState(false)
-  
+  const [avatarUrl, setAvatarUrl] = useState<string>("")
+  const [timestamp, setTimestamp] = useState<number>(Date.now()) // Force re-render when avatar changes
+
+  // Update avatar URL when session changes
+  useEffect(() => {
+    if (session?.user?.image) {
+      setAvatarUrl(session.user.image)
+    } else if (session?.user?.avatar) {
+      setAvatarUrl(session.user.avatar)
+    }
+    
+    // Set up a listener for avatar changes
+    const handleAvatarUpdate = (event: CustomEvent) => {
+      if (event.detail?.avatarUrl) {
+        setAvatarUrl(event.detail.avatarUrl)
+        setTimestamp(Date.now()) // Force re-render
+      }
+    }
+    
+    window.addEventListener('avatarUpdated', handleAvatarUpdate as EventListener)
+    
+    return () => {
+      window.removeEventListener('avatarUpdated', handleAvatarUpdate as EventListener)
+    }
+  }, [session])
+
+  // Function to force update the session
+  const refreshSession = async () => {
+    await updateSession()
+    setTimestamp(Date.now()) // Force re-render
+  }
+
   return (
     <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-40 shadow-sm">
       <div className="container mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="md:hidden text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200" 
+          <Button
+            variant="ghost"
+            size="sm"
+            className="md:hidden text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             onClick={onMobileMenuToggle}
           >
             <Menu className="h-5 w-5" />
           </Button>
-          
           {isOrganizationPage && currentOrganization && (
             <div className="flex items-center space-x-2">
               <Button variant="ghost" size="sm" asChild>
@@ -57,20 +88,17 @@ export function Header({ onMobileMenuToggle, currentOrganization, isOrganization
               </span>
             </div>
           )}
-          
           <Link href="/" className="font-bold text-xl hidden md:block bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
             TaskFlow Pro
           </Link>
           <Link href="/" className="font-bold text-xl md:hidden bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
             TF
           </Link>
-          
           {/* Organization Switcher */}
           {session && !isOrganizationPage && (
             <OrganizationSwitcher />
           )}
         </div>
-        
         {/* Search Bar */}
         <div className="flex-1 max-w-md mx-4 hidden md:block">
           <div className="relative">
@@ -81,18 +109,18 @@ export function Header({ onMobileMenuToggle, currentOrganization, isOrganization
             />
           </div>
         </div>
-        
         <div className="flex items-center space-x-3">
           {/* Mobile Search */}
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             className="md:hidden text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             onClick={() => setSearchOpen(!searchOpen)}
           >
             <Search className="h-5 w-5" />
           </Button>
-          
+          {/* Theme Toggle */}
+          <ThemeToggle />
           {/* Create New Button */}
           <Popover>
             <PopoverTrigger asChild>
@@ -135,22 +163,27 @@ export function Header({ onMobileMenuToggle, currentOrganization, isOrganization
               </div>
             </PopoverContent>
           </Popover>
-          
           {/* Notifications */}
           <NotificationBell />
-          
           {/* Help */}
           <Button variant="ghost" size="sm" className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
             <HelpCircle className="h-5 w-5" />
           </Button>
-          
           {/* User Menu */}
           {session && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={session.user.avatar || ""} alt={session.user.name || ""} />
+                    <AvatarImage
+                      src={`${avatarUrl}?t=${timestamp}`} // Add timestamp to prevent caching
+                      alt={session.user.name || ""}
+                      key={`${avatarUrl}-${timestamp}`} // Force re-render when avatar changes
+                      onError={(e) => {
+                        // If image fails to load, hide it and show the fallback
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
                     <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white">
                       {session.user.name?.charAt(0) || session.user.email?.charAt(0) || "U"}
                     </AvatarFallback>
@@ -175,7 +208,7 @@ export function Header({ onMobileMenuToggle, currentOrganization, isOrganization
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/profile">
+                  <Link href="/profile" onClick={refreshSession}>
                     <User className="mr-2 h-4 w-4" />
                     <span>Profile</span>
                   </Link>
@@ -196,7 +229,6 @@ export function Header({ onMobileMenuToggle, currentOrganization, isOrganization
           )}
         </div>
       </div>
-      
       {/* Mobile Search Bar */}
       {searchOpen && (
         <div className="md:hidden px-4 pb-3">
