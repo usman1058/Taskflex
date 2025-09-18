@@ -1,8 +1,8 @@
-// app/api/organizations/[id]/invite/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { generateAdminKey } from "@/lib/utils"; // Make sure this import is correct
 
 export async function POST(
   request: NextRequest,
@@ -14,9 +14,6 @@ export async function POST(
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    
-    const body = await request.json();
-    const { email, role } = body;
     
     // Check if the organization exists and user has permission
     const organization = await db.organization.findUnique({
@@ -35,7 +32,7 @@ export async function POST(
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
     
-    // Check if user has permission to invite members
+    // Check if user has permission to regenerate the key
     const userMembership = organization.members.find(member => member.userId === session.user.id);
     const hasPermission = session.user.role === "ADMIN" || 
                          (userMembership && (userMembership.role === "OWNER" || userMembership.role === "ADMIN"));
@@ -44,50 +41,18 @@ export async function POST(
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
     
-    // Check if the user already exists
-    let user = await db.user.findUnique({
-      where: { email }
+    // Generate a new admin key
+    const newAdminKey = generateAdminKey(); // This should now work
+    
+    // Update the organization with the new key
+    await db.organization.update({
+      where: { id: params.id },
+      data: { adminKey: newAdminKey }
     });
     
-    // If user doesn't exist, create a new user
-    if (!user) {
-      user = await db.user.create({
-        data: {
-          email,
-          name: email.split('@')[0], // Temporary name
-          status: "ACTIVE"
-        }
-      });
-    }
-    
-    // Check if the user is already a member of the organization
-    const existingMembership = await db.organizationMember.findUnique({
-      where: {
-        userId_organizationId: {
-          userId: user.id,
-          organizationId: params.id
-        }
-      }
-    });
-    
-    if (existingMembership) {
-      return NextResponse.json({ error: "User is already a member of this organization" }, { status: 400 });
-    }
-    
-    // Add the user to the organization
-    const membership = await db.organizationMember.create({
-      data: {
-        userId: user.id,
-        organizationId: params.id,
-        role
-      }
-    });
-    
-    // TODO: Send invitation email to the user
-    
-    return NextResponse.json({ message: "Invitation sent successfully" });
+    return NextResponse.json({ adminKey: newAdminKey });
   } catch (error) {
-    console.error("Error inviting member:", error);
+    console.error("Error regenerating admin key:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

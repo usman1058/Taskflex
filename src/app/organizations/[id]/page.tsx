@@ -10,11 +10,11 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
-import { 
-  ArrowLeft, 
-  Users, 
-  FolderOpen, 
-  Users2, 
+import {
+  ArrowLeft,
+  Users,
+  FolderOpen,
+  Users2,
   Calendar,
   TrendingUp,
   Activity,
@@ -30,20 +30,24 @@ import {
   Mail,
   Phone,
   MapPin,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  Building,
+  Globe,
+  Key,
+  Copy,
+  Trash2,
+  Edit
 } from "lucide-react"
 import Link from "next/link"
-import { UserCard } from "@/components/user/user-cards"
-import { UserStats } from "@/components/user/user-stats"
-import { UserActivity } from "@/components/user/user-activity"
-import { UserTeams } from "@/components/user/user-teams"
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu"
+import InviteMemberDialog from "@/components/organizations/invite-member-dialog"
+import DeleteOrganizationDialog from "@/components/organizations/delete-organization-dialog"
 
 interface OrganizationMember {
   id: string
@@ -89,7 +93,19 @@ interface Organization {
   id: string
   name: string
   description: string | null
+  type: string
+  industry: string | null
+  size: string | null
+  website: string | null
+  phone: string | null
+  address: string | null
+  city: string | null
+  state: string | null
+  country: string | null
+  postalCode: string | null
+  timezone: string | null
   avatar: string | null
+  adminKey: string | null
   createdAt: string
   updatedAt: string
   members: OrganizationMember[]
@@ -120,12 +136,12 @@ interface TaskStats {
   overdue: number
 }
 
-export default function OrganizationDashboardPage() {
+export default function OrganizationDetailPage() {
   const { data: session } = useSession()
   const router = useRouter()
   const params = useParams()
   const id = params.id as string
-  
+
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -138,7 +154,9 @@ export default function OrganizationDashboardPage() {
   })
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedMember, setSelectedMember] = useState<string | null>(null)
-  
+  const [adminKey, setAdminKey] = useState<string | null>(null)
+  const [showAdminKey, setShowAdminKey] = useState(false)
+
   useEffect(() => {
     if (id) {
       fetchOrganization()
@@ -146,14 +164,14 @@ export default function OrganizationDashboardPage() {
       fetchTaskStats()
     }
   }, [id])
-  
+
   const fetchOrganization = async () => {
     try {
       setLoading(true)
       setError(null)
-      
+
       const response = await fetch(`/api/organizations/${id}`)
-      
+
       if (!response.ok) {
         if (response.status === 404) {
           setError("Organization not found")
@@ -165,9 +183,15 @@ export default function OrganizationDashboardPage() {
         }
         return
       }
-      
+
       const organizationData = await response.json()
       setOrganization(organizationData)
+
+      // Only show admin key to owners and admins
+      const userRole = organizationData.members.find((m: any) => m.user.id === session?.user.id)?.role
+      if (session?.user?.role === "ADMIN" || userRole === "OWNER" || userRole === "ADMIN") {
+        setAdminKey(organizationData.adminKey)
+      }
     } catch (error) {
       console.error("Error fetching organization:", error)
       setError(error instanceof Error ? error.message : "Failed to load organization. Please try again.")
@@ -175,7 +199,7 @@ export default function OrganizationDashboardPage() {
       setLoading(false)
     }
   }
-  
+
   const fetchActivity = async () => {
     try {
       // Mock activity data for now
@@ -216,37 +240,62 @@ export default function OrganizationDashboardPage() {
       console.error("Error fetching activity:", error)
     }
   }
-  
+
   const fetchTaskStats = async () => {
     try {
-      // Mock task stats for now
-      setTaskStats({
-        total: 42,
-        completed: 24,
-        inProgress: 12,
-        overdue: 6
-      })
+      const response = await fetch(`/api/organizations/${id}/task-stats`)
+      if (response.ok) {
+        const data = await response.json()
+        setTaskStats(data)
+      }
     } catch (error) {
       console.error("Error fetching task stats:", error)
     }
   }
-  
+
+  const handleRegenerateKey = async () => {
+    try {
+      const response = await fetch(`/api/organizations/${id}/regenerate-key`, {
+        method: "POST"
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setAdminKey(data.adminKey)
+        setShowAdminKey(true)
+      } else {
+        const error = await response.json()
+        alert(error.error || "Failed to regenerate admin key")
+      }
+    } catch (error) {
+      console.error("Error regenerating admin key:", error)
+      alert("Failed to regenerate admin key")
+    }
+  }
+
+  const copyToClipboard = () => {
+    if (adminKey) {
+      navigator.clipboard.writeText(adminKey)
+      alert("Admin key copied to clipboard!")
+    }
+  }
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString()
   }
-  
+
   const formatRelativeTime = (dateString: string) => {
     const date = new Date(dateString)
     const now = new Date()
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-    
+
     if (diffInSeconds < 60) return "just now"
     if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`
     if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`
     if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)} days ago`
     return formatDate(dateString)
   }
-  
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "ACTIVE": return "bg-green-100 text-green-800"
@@ -255,7 +304,20 @@ export default function OrganizationDashboardPage() {
       default: return "bg-gray-100 text-gray-800"
     }
   }
-  
+
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case "COMPANY": return "bg-blue-100 text-blue-800"
+      case "NONPROFIT": return "bg-green-100 text-green-800"
+      case "EDUCATIONAL": return "bg-purple-100 text-purple-800"
+      case "GOVERNMENT": return "bg-red-100 text-red-800"
+      case "STARTUP": return "bg-orange-100 text-orange-800"
+      case "FREELANCE": return "bg-yellow-100 text-yellow-800"
+      case "OTHER": return "bg-gray-100 text-gray-800"
+      default: return "bg-gray-100 text-gray-800"
+    }
+  }
+
   const getRoleColor = (role: string) => {
     switch (role) {
       case "OWNER": return "bg-purple-100 text-purple-800"
@@ -265,27 +327,42 @@ export default function OrganizationDashboardPage() {
       default: return "bg-gray-100 text-gray-800"
     }
   }
-  
+
+  const getSizeLabel = (size: string | null) => {
+    if (!size) return "Unknown"
+    switch (size) {
+      case "SOLO": return "Solo"
+      case "SMALL": return "Small"
+      case "MEDIUM": return "Medium"
+      case "LARGE": return "Large"
+      case "ENTERPRISE": return "Enterprise"
+      default: return size
+    }
+  }
+
   const getUserRole = () => {
     if (!organization || !session?.user?.id) return null
-    
+
     const member = organization.members.find(m => m.user.id === session.user.id)
     return member ? member.role : null
   }
-  
+
   const userRole = getUserRole()
   const isAdmin = session?.user?.role === "ADMIN"
   const canCreate = isAdmin || (userRole && (userRole === "OWNER" || userRole === "ADMIN" || userRole === "MANAGER"))
-  
-  const filteredMembers = organization?.members.filter(member => 
+  const canEdit = isAdmin || (userRole && (userRole === "OWNER" || userRole === "ADMIN"))
+  const canDelete = isAdmin || (userRole === "OWNER")
+  const canManage = isAdmin || (userRole && (userRole === "OWNER" || userRole === "ADMIN" || userRole === "MANAGER"))
+
+  const filteredMembers = organization?.members.filter(member =>
     member.user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     member.user.email.toLowerCase().includes(searchTerm.toLowerCase())
   ) || []
-  
-  const selectedMemberData = selectedMember 
+
+  const selectedMemberData = selectedMember
     ? organization?.members.find(m => m.id === selectedMember)
     : null
-  
+
   if (loading) {
     return (
       <MainLayout>
@@ -295,7 +372,7 @@ export default function OrganizationDashboardPage() {
       </MainLayout>
     )
   }
-  
+
   if (error || !organization) {
     return (
       <MainLayout>
@@ -315,9 +392,15 @@ export default function OrganizationDashboardPage() {
       </MainLayout>
     )
   }
-  
-  const completionPercentage = Math.round((taskStats.completed / taskStats.total) * 100)
-  
+
+  const completionPercentage = taskStats.total > 0
+    ? Math.round((taskStats.completed / taskStats.total) * 100)
+    : 0
+
+  function handleRemoveMember(id: string): void {
+    throw new Error("Function not implemented.")
+  }
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -341,30 +424,178 @@ export default function OrganizationDashboardPage() {
               <div>
                 <h1 className="text-3xl font-bold tracking-tight">{organization.name}</h1>
                 <p className="text-muted-foreground">
-                  Organization Dashboard
+                  Organization Details
                 </p>
               </div>
             </div>
           </div>
-          
-          {canCreate && (
-            <div className="flex gap-2">
-              <Button asChild>
-                <Link href={`/projects/create?organizationId=${organization.id}`}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Project
-                </Link>
-              </Button>
-              <Button asChild>
-                <Link href={`/teams/create?organizationId=${organization.id}`}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Team
-                </Link>
-              </Button>
-            </div>
-          )}
+
+          <div className="flex gap-2">
+            {canCreate && (
+              <>
+                <Button asChild>
+                  <Link href={`/tasks/create?organizationId=${organization.id}`}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Task
+                  </Link>
+                </Button>
+                <Button asChild>
+                  <Link href={`/projects/create?organizationId=${organization.id}`}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Project
+                  </Link>
+                </Button>
+                <Button asChild>
+                  <Link href={`/teams/create?organizationId=${organization.id}`}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Team
+                  </Link>
+                </Button>
+              </>
+            )}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {canEdit && (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/organizations/${organization.id}/settings`}>
+                        <Settings className="mr-2 h-4 w-4" />
+                        Settings
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/organizations/${organization.id}/edit`}>
+                        <Edit className="mr-2 h-4 w-4" />
+                        Edit Organization
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                {canDelete && (
+                  <DeleteOrganizationDialog
+                    organization={organization}
+                    onSuccess={() => router.push("/organizations")}
+                  >
+                    <DropdownMenuItem className="text-destructive" onSelect={(e) => e.preventDefault()}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Organization
+                    </DropdownMenuItem>
+                  </DeleteOrganizationDialog>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
-        
+
+        {/* Admin Key Section for Owners and Admins */}
+        {adminKey && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                Admin Key
+              </CardTitle>
+              <CardDescription>
+                This key is used for administrative actions. Keep it secure.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Input
+                  type={showAdminKey ? "text" : "password"}
+                  value={adminKey}
+                  readOnly
+                  className="font-mono"
+                />
+                <Button variant="outline" onClick={() => setShowAdminKey(!showAdminKey)}>
+                  {showAdminKey ? "Hide" : "Show"}
+                </Button>
+                <Button variant="outline" onClick={copyToClipboard}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" onClick={handleRegenerateKey}>
+                  Regenerate
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Organization Overview */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building className="h-5 w-5" />
+              Organization Overview
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Type</p>
+                <Badge className={getTypeColor(organization.type)}>
+                  {organization.type}
+                </Badge>
+              </div>
+
+              {organization.size && (
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Size</p>
+                  <p className="font-medium">{getSizeLabel(organization.size)}</p>
+                </div>
+              )}
+
+              {organization.industry && (
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Industry</p>
+                  <p className="font-medium">{organization.industry}</p>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Created</p>
+                <p className="font-medium">{formatDate(organization.createdAt)}</p>
+              </div>
+            </div>
+
+            {organization.description && (
+              <div className="mt-4">
+                <p className="text-sm text-muted-foreground">Description</p>
+                <p className="mt-1">{organization.description}</p>
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2 mt-4">
+              {organization.website && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Globe className="h-4 w-4 text-muted-foreground" />
+                  <a href={organization.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    {organization.website}
+                  </a>
+                </div>
+              )}
+
+              {(organization.city || organization.country) && (
+                <div className="flex items-center gap-2 text-sm">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    {organization.city && organization.country
+                      ? `${organization.city}, ${organization.country}`
+                      : organization.city || organization.country}
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card className="border-none shadow-sm">
@@ -378,7 +609,7 @@ export default function OrganizationDashboardPage() {
               </p>
             </CardContent>
           </Card>
-          
+
           <Card className="border-none shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Total Teams</CardTitle>
@@ -390,7 +621,7 @@ export default function OrganizationDashboardPage() {
               </p>
             </CardContent>
           </Card>
-          
+
           <Card className="border-none shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Total Members</CardTitle>
@@ -402,7 +633,7 @@ export default function OrganizationDashboardPage() {
               </p>
             </CardContent>
           </Card>
-          
+
           <Card className="border-none shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Task Completion</CardTitle>
@@ -410,15 +641,18 @@ export default function OrganizationDashboardPage() {
             <CardContent>
               <div className="text-2xl font-bold">{completionPercentage}%</div>
               <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                <div 
-                  className="bg-green-600 h-2 rounded-full" 
+                <div
+                  className="bg-green-600 h-2 rounded-full"
                   style={{ width: `${completionPercentage}%` }}
                 ></div>
               </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {taskStats.completed} of {taskStats.total} tasks completed
+              </p>
             </CardContent>
           </Card>
         </div>
-        
+
         {/* Main Content */}
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
@@ -428,7 +662,7 @@ export default function OrganizationDashboardPage() {
                 <TabsTrigger value="teams">Teams</TabsTrigger>
                 <TabsTrigger value="activity">Activity</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="projects" className="space-y-4">
                 <Card className="border-none shadow-sm">
                   <CardHeader>
@@ -487,7 +721,7 @@ export default function OrganizationDashboardPage() {
                   </CardContent>
                 </Card>
               </TabsContent>
-              
+
               <TabsContent value="teams" className="space-y-4">
                 <Card className="border-none shadow-sm">
                   <CardHeader>
@@ -545,7 +779,7 @@ export default function OrganizationDashboardPage() {
                   </CardContent>
                 </Card>
               </TabsContent>
-              
+
               <TabsContent value="activity" className="space-y-4">
                 <Card className="border-none shadow-sm">
                   <CardHeader>
@@ -590,7 +824,7 @@ export default function OrganizationDashboardPage() {
               </TabsContent>
             </Tabs>
           </div>
-          
+
           {/* Members Section */}
           <div className="space-y-6">
             <Card className="border-none shadow-sm">
@@ -613,15 +847,14 @@ export default function OrganizationDashboardPage() {
                     className="pl-10"
                   />
                 </div>
-                
+
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {filteredMembers.length > 0 ? (
                     filteredMembers.map(member => (
-                      <div 
-                        key={member.id} 
-                        className={`p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors ${
-                          selectedMember === member.id ? 'border-primary' : ''
-                        }`}
+                      <div
+                        key={member.id}
+                        className={`p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors ${selectedMember === member.id ? 'border-primary' : ''
+                          }`}
                         onClick={() => setSelectedMember(member.id === selectedMember ? null : member.id)}
                       >
                         <div className="flex items-center justify-between">
@@ -649,18 +882,18 @@ export default function OrganizationDashboardPage() {
                     </div>
                   )}
                 </div>
-                
+
                 {canCreate && (
-                  <Button variant="outline" className="w-full" asChild>
-                    <Link href={`/organizations/${organization.id}/invite`}>
+                  <InviteMemberDialog organization={organization}>
+                    <Button variant="outline" className="w-full">
                       <UserPlus className="mr-2 h-4 w-4" />
                       Invite Member
-                    </Link>
-                  </Button>
+                    </Button>
+                  </InviteMemberDialog>
                 )}
               </CardContent>
             </Card>
-            
+
             {/* Selected Member Details */}
             {selectedMemberData && (
               <div className="space-y-4">
@@ -668,8 +901,8 @@ export default function OrganizationDashboardPage() {
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between">
                       <span>Member Details</span>
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="sm"
                         onClick={() => setSelectedMember(null)}
                       >
@@ -692,8 +925,8 @@ export default function OrganizationDashboardPage() {
                             {selectedMemberData.role}
                           </Badge>
                           <Badge className={
-                            selectedMemberData.user.status === "ACTIVE" 
-                              ? "bg-green-100 text-green-800" 
+                            selectedMemberData.user.status === "ACTIVE"
+                              ? "bg-green-100 text-green-800"
                               : "bg-gray-100 text-gray-800"
                           }>
                             {selectedMemberData.user.status}
@@ -701,7 +934,7 @@ export default function OrganizationDashboardPage() {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 text-sm">
@@ -719,7 +952,7 @@ export default function OrganizationDashboardPage() {
                           <span>Joined {formatDate(selectedMemberData.joinedAt)}</span>
                         </div>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 text-sm">
                           <Users className="h-4 w-4 text-muted-foreground" />
@@ -731,7 +964,7 @@ export default function OrganizationDashboardPage() {
                         </div>
                       </div>
                     </div>
-                    
+
                     {selectedMemberData.user.bio && (
                       <div className="pt-2 border-t">
                         <p className="text-sm text-muted-foreground">
@@ -741,15 +974,67 @@ export default function OrganizationDashboardPage() {
                     )}
                   </CardContent>
                 </Card>
-                
-                {/* User Stats */}
-                <UserStats userId={selectedMemberData.user.id} />
-                
-                {/* User Activity */}
-                <UserActivity userId={selectedMemberData.user.id} />
-                
-                {/* User Teams */}
-                <UserTeams userId={selectedMemberData.user.id} />
+
+                {/* Simple Stats for Selected Member */}
+                <Card className="border-none shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-medium">Activity Overview</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span>Tasks Assigned</span>
+                        <span className="font-medium">12</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Tasks Completed</span>
+                        <span className="font-medium">8</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Projects</span>
+                        <span className="font-medium">3</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Teams</span>
+                        <span className="font-medium">2</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Actions */}
+                <Card className="border-none shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-medium">Actions</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <Button variant="outline" className="w-full" asChild>
+                      <Link href={`/users/${selectedMemberData.user.id}`}>
+                        <Settings className="mr-2 h-4 w-4" />
+                        View User Profile
+                      </Link>
+                    </Button>
+
+                    {/* Add button to navigate to members page */}
+                    <Button variant="outline" className="w-full" asChild>
+                      <Link href={`/organizations/${id}/members`}>
+                        <Users className="mr-2 h-4 w-4" />
+                        View All Members
+                      </Link>
+                    </Button>
+
+                    {canManage && (
+                      <Button
+                        variant="outline"
+                        className="w-full text-destructive hover:text-destructive"
+                        onClick={() => handleRemoveMember(selectedMemberData.id)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Remove from Organization
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             )}
           </div>

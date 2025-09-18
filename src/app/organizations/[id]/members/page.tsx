@@ -19,20 +19,27 @@ import {
   MapPin,
   Calendar,
   MoreHorizontal,
-  Filter
+  Filter,
+  Settings,
+  Trash2,
+  CheckCircle,
+  Clock,
+  AlertTriangle,
+  Plus,
+  User
 } from "lucide-react"
 import Link from "next/link"
-import { UserCard } from "@/components/user/user-cards"
-import { UserStats } from "@/components/user/user-stats"
-import { UserActivity } from "@/components/user/user-activity"
-import { UserTeams } from "@/components/user/user-teams"
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
   DropdownMenuItem, 
   DropdownMenuTrigger,
-  DropdownMenuSeparator
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger
 } from "@/components/ui/dropdown-menu"
+import InviteMemberDialog from "@/components/organizations/invite-member-dialog"
 
 interface OrganizationMember {
   id: string
@@ -55,6 +62,17 @@ interface Organization {
   id: string
   name: string
   description: string | null
+  type: string
+  industry: string | null
+  size: string | null
+  website: string | null
+  phone: string | null
+  address: string | null
+  city: string | null
+  state: string | null
+  country: string | null
+  postalCode: string | null
+  timezone: string | null
   avatar: string | null
   createdAt: string
   updatedAt: string
@@ -64,6 +82,13 @@ interface Organization {
     teams: number
     members: number
   }
+}
+
+interface TaskStats {
+  total: number
+  completed: number
+  inProgress: number
+  overdue: number
 }
 
 export default function OrganizationMembersPage() {
@@ -78,6 +103,8 @@ export default function OrganizationMembersPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedMember, setSelectedMember] = useState<string | null>(null)
   const [roleFilter, setRoleFilter] = useState<string>("ALL")
+  const [statusFilter, setStatusFilter] = useState<string>("ALL")
+  const [taskStats, setTaskStats] = useState<TaskStats | null>(null)
   
   useEffect(() => {
     if (id) {
@@ -114,12 +141,33 @@ export default function OrganizationMembersPage() {
     }
   }
   
+  const fetchTaskStats = async (userId: string) => {
+    try {
+      const response = await fetch(`/api/users/${userId}/task-stats`)
+      if (response.ok) {
+        const data = await response.json()
+        setTaskStats(data)
+      }
+    } catch (error) {
+      console.error("Error fetching task stats:", error)
+    }
+  }
+  
   const getRoleColor = (role: string) => {
     switch (role) {
       case "OWNER": return "bg-purple-100 text-purple-800"
       case "ADMIN": return "bg-blue-100 text-blue-800"
       case "MANAGER": return "bg-green-100 text-green-800"
       case "MEMBER": return "bg-gray-100 text-gray-800"
+      default: return "bg-gray-100 text-gray-800"
+    }
+  }
+  
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "ACTIVE": return "bg-green-100 text-green-800"
+      case "INACTIVE": return "bg-gray-100 text-gray-800"
+      case "SUSPENDED": return "bg-red-100 text-red-800"
       default: return "bg-gray-100 text-gray-800"
     }
   }
@@ -133,14 +181,15 @@ export default function OrganizationMembersPage() {
   
   const userRole = getUserRole()
   const isAdmin = session?.user?.role === "ADMIN"
-  const canManage = isAdmin || (userRole && (userRole === "OWNER" || userRole === "ADMIN" || userRole === "MANAGER"))
+  const canManage = isAdmin || (userRole && (userRole === "OWNER" || userRole === "ADMIN"))
   
   const filteredMembers = organization?.members.filter(member => {
     const matchesSearch = member.user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          member.user.email.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesRole = roleFilter === "ALL" || member.role === roleFilter
+    const matchesStatus = statusFilter === "ALL" || member.user.status === statusFilter
     
-    return matchesSearch && matchesRole
+    return matchesSearch && matchesRole && matchesStatus
   }) || []
   
   const selectedMemberData = selectedMember 
@@ -160,13 +209,21 @@ export default function OrganizationMembersPage() {
       if (response.ok) {
         // Refresh organization data
         fetchOrganization()
+      } else {
+        const error = await response.json()
+        alert(error.error || "Failed to update member role")
       }
     } catch (error) {
       console.error("Error updating member role:", error)
+      alert("Failed to update member role")
     }
   }
   
   const handleRemoveMember = async (memberId: string) => {
+    if (!confirm("Are you sure you want to remove this member from the organization?")) {
+      return
+    }
+    
     try {
       const response = await fetch(`/api/organizations/${id}/members/${memberId}`, {
         method: "DELETE",
@@ -179,11 +236,21 @@ export default function OrganizationMembersPage() {
         if (selectedMember === memberId) {
           setSelectedMember(null)
         }
+      } else {
+        const error = await response.json()
+        alert(error.error || "Failed to remove member")
       }
     } catch (error) {
       console.error("Error removing member:", error)
+      alert("Failed to remove member")
     }
   }
+  
+  useEffect(() => {
+    if (selectedMemberData) {
+      fetchTaskStats(selectedMemberData.user.id)
+    }
+  }, [selectedMemberData])
   
   if (loading) {
     return (
@@ -208,9 +275,9 @@ export default function OrganizationMembersPage() {
             <h2 className="text-xl font-bold mb-2">Error</h2>
             <p className="text-muted-foreground mb-4">{error || "Organization not found"}</p>
             <Button asChild>
-              <Link href="/organizations">
+              <Link href={`/organizations/${id}`}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Organizations
+                Back to Organization
               </Link>
             </Button>
           </div>
@@ -239,12 +306,12 @@ export default function OrganizationMembersPage() {
           </div>
           
           {canManage && (
-            <Button asChild>
-              <Link href={`/organizations/${id}/invite`}>
+            <InviteMemberDialog organization={organization}>
+              <Button>
                 <UserPlus className="mr-2 h-4 w-4" />
                 Invite Member
-              </Link>
-            </Button>
+              </Button>
+            </InviteMemberDialog>
           )}
         </div>
         
@@ -264,31 +331,56 @@ export default function OrganizationMembersPage() {
                     />
                   </div>
                   
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="gap-1">
-                        <Filter className="h-4 w-4" />
-                        {roleFilter === "ALL" ? "All Roles" : roleFilter}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setRoleFilter("ALL")}>
-                        All Roles
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setRoleFilter("OWNER")}>
-                        Owner
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setRoleFilter("ADMIN")}>
-                        Admin
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setRoleFilter("MANAGER")}>
-                        Manager
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setRoleFilter("MEMBER")}>
-                        Member
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <div className="flex gap-2">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="gap-1">
+                          <Filter className="h-4 w-4" />
+                          {roleFilter === "ALL" ? "All Roles" : roleFilter}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setRoleFilter("ALL")}>
+                          All Roles
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setRoleFilter("OWNER")}>
+                          Owner
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setRoleFilter("ADMIN")}>
+                          Admin
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setRoleFilter("MANAGER")}>
+                          Manager
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setRoleFilter("MEMBER")}>
+                          Member
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="gap-1">
+                          <Filter className="h-4 w-4" />
+                          {statusFilter === "ALL" ? "All Status" : statusFilter}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setStatusFilter("ALL")}>
+                          All Status
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatusFilter("ACTIVE")}>
+                          Active
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatusFilter("INACTIVE")}>
+                          Inactive
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatusFilter("SUSPENDED")}>
+                          Suspended
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -297,13 +389,90 @@ export default function OrganizationMembersPage() {
             <div className="grid gap-4 md:grid-cols-2">
               {filteredMembers.length > 0 ? (
                 filteredMembers.map(member => (
-                  <UserCard 
-                    key={member.id}
-                    user={member.user}
-                    showActions={canManage}
-                    onChangeRole={canManage ? handleRoleChange : undefined}
-                    onRemove={canManage ? handleRemoveMember : undefined}
-                  />
+                  <Card 
+                    key={member.id} 
+                    className={`border-none shadow-sm cursor-pointer hover:shadow-md transition-shadow ${
+                      selectedMember === member.id ? 'ring-2 ring-primary' : ''
+                    }`}
+                    onClick={() => setSelectedMember(member.id === selectedMember ? null : member.id)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-12 w-12">
+                            <AvatarImage src={member.user.avatar} />
+                            <AvatarFallback>
+                              {member.user.name.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <h3 className="font-semibold">{member.user.name}</h3>
+                            <p className="text-sm text-muted-foreground">{member.user.email}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge className={getRoleColor(member.role)}>
+                                {member.role}
+                              </Badge>
+                              <Badge className={getStatusColor(member.user.status)}>
+                                {member.user.status}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {canManage && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>
+                                  Change Role
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                  <DropdownMenuItem onClick={() => handleRoleChange(member.id, "OWNER")}>
+                                    Owner
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleRoleChange(member.id, "ADMIN")}>
+                                    Admin
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleRoleChange(member.id, "MANAGER")}>
+                                    Manager
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleRoleChange(member.id, "MEMBER")}>
+                                    Member
+                                  </DropdownMenuItem>
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem 
+                                className="text-destructive"
+                                onClick={() => handleRemoveMember(member.id)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Remove from Organization
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
+                      
+                      <div className="flex items-center gap-4 mt-4 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          <span>Joined {new Date(member.joinedAt).toLocaleDateString()}</span>
+                        </div>
+                        {member.user.location && (
+                          <div className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3" />
+                            <span>{member.user.location}</span>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))
               ) : (
                 <div className="col-span-full text-center py-8 text-muted-foreground">
@@ -346,11 +515,7 @@ export default function OrganizationMembersPage() {
                           <Badge className={getRoleColor(selectedMemberData.role)}>
                             {selectedMemberData.role}
                           </Badge>
-                          <Badge className={
-                            selectedMemberData.user.status === "ACTIVE" 
-                              ? "bg-green-100 text-green-800" 
-                              : "bg-gray-100 text-gray-800"
-                          }>
+                          <Badge className={getStatusColor(selectedMemberData.user.status)}>
                             {selectedMemberData.user.status}
                           </Badge>
                         </div>
@@ -397,14 +562,73 @@ export default function OrganizationMembersPage() {
                   </CardContent>
                 </Card>
                 
-                {/* User Stats */}
-                <UserStats userId={selectedMemberData.user.id} />
+                {/* Task Stats */}
+                {taskStats && (
+                  <Card className="border-none shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="text-sm font-medium">Task Overview</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <span>Completed</span>
+                          </div>
+                          <span className="font-medium">{taskStats.completed}</span>
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-blue-500" />
+                            <span>In Progress</span>
+                          </div>
+                          <span className="font-medium">{taskStats.inProgress}</span>
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                            <span>Overdue</span>
+                          </div>
+                          <span className="font-medium">{taskStats.overdue}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="pt-2">
+                        <div className="text-sm text-muted-foreground">
+                          Total tasks: {taskStats.total}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
                 
-                {/* User Activity */}
-                <UserActivity userId={selectedMemberData.user.id} />
-                
-                {/* User Teams */}
-                <UserTeams userId={selectedMemberData.user.id} />
+                {/* Actions */}
+                <Card className="border-none shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-medium">Actions</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <Button variant="outline" className="w-full" asChild>
+                      <Link href={`/users/${selectedMemberData.user.id}`}>
+                        <User className="mr-2 h-4 w-4" />
+                        View Full Profile
+                      </Link>
+                    </Button>
+                    
+                    {canManage && (
+                      <Button 
+                        variant="outline" 
+                        className="w-full text-destructive hover:text-destructive"
+                        onClick={() => handleRemoveMember(selectedMemberData.id)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Remove from Organization
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
               </>
             ) : (
               <Card className="border-none shadow-sm">

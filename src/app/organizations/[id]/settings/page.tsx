@@ -1,3 +1,4 @@
+// app/organizations/[id]/settings/page.tsx
 "use client"
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
@@ -13,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { 
   ArrowLeft, 
   Save, 
@@ -26,9 +28,16 @@ import {
   Database,
   Globe,
   AlertTriangle,
-  Check
+  Check,
+  Key,
+  Copy,
+  Building,
+  MapPin,
+  UserPlus
 } from "lucide-react"
 import Link from "next/link"
+import DeleteOrganizationDialog from "@/components/organizations/delete-organization-dialog"
+import InviteMemberDialog from "@/components/organizations/invite-member-dialog"
 
 interface OrganizationMember {
   id: string
@@ -42,23 +51,9 @@ interface OrganizationMember {
   joinedAt: string
 }
 
-interface Organization {
-  id: string
-  name: string
-  description: string | null
-  avatar: string | null
-  createdAt: string
-  updatedAt: string
-  members: OrganizationMember[]
-  _count: {
-    projects: number
-    teams: number
-    members: number
-  }
-}
-
 interface OrganizationSettings {
   id: string
+  organizationId: string
   allowPublicProjects: boolean
   allowPublicTeams: boolean
   allowMemberInvites: boolean
@@ -68,7 +63,31 @@ interface OrganizationSettings {
     newMember: boolean
     projectCreated: boolean
     teamCreated: boolean
+    taskAssigned: boolean
+    taskCompleted: boolean
+    commentAdded: boolean
   }
+}
+
+interface Organization {
+  id: string
+  name: string
+  description: string | null
+  type: string
+  industry: string | null
+  size: string | null
+  website: string | null
+  phone: string | null
+  address: string | null
+  city: string | null
+  state: string | null
+  country: string | null
+  postalCode: string | null
+  timezone: string | null
+  adminKey: string | null
+  createdAt: string
+  updatedAt: string
+  members: OrganizationMember[]
 }
 
 export default function OrganizationSettingsPage() {
@@ -83,9 +102,22 @@ export default function OrganizationSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("general")
+  const [adminKey, setAdminKey] = useState<string | null>(null)
+  const [showAdminKey, setShowAdminKey] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
-    description: ""
+    description: "",
+    type: "COMPANY",
+    industry: "",
+    size: "",
+    website: "",
+    phone: "",
+    address: "",
+    city: "",
+    state: "",
+    country: "",
+    postalCode: "",
+    timezone: ""
   })
   const [settingsData, setSettingsData] = useState({
     allowPublicProjects: false,
@@ -96,7 +128,10 @@ export default function OrganizationSettingsPage() {
     notificationSettings: {
       newMember: true,
       projectCreated: true,
-      teamCreated: true
+      teamCreated: true,
+      taskAssigned: true,
+      taskCompleted: true,
+      commentAdded: true
     }
   })
   
@@ -128,9 +163,21 @@ export default function OrganizationSettingsPage() {
       
       const organizationData = await response.json()
       setOrganization(organizationData)
+      setAdminKey(organizationData.adminKey)
       setFormData({
         name: organizationData.name,
-        description: organizationData.description || ""
+        description: organizationData.description || "",
+        type: organizationData.type || "COMPANY",
+        industry: organizationData.industry || "",
+        size: organizationData.size || "",
+        website: organizationData.website || "",
+        phone: organizationData.phone || "",
+        address: organizationData.address || "",
+        city: organizationData.city || "",
+        state: organizationData.state || "",
+        country: organizationData.country || "",
+        postalCode: organizationData.postalCode || "",
+        timezone: organizationData.timezone || ""
       })
     } catch (error) {
       console.error("Error fetching organization:", error)
@@ -237,32 +284,39 @@ export default function OrganizationSettingsPage() {
     }
   }
   
-  const handleDeleteOrganization = async () => {
-    if (!confirm("Are you sure you want to delete this organization? This action cannot be undone and will delete all associated projects, teams, and data.")) {
-      return
-    }
-    
+  const handleRegenerateKey = async () => {
     try {
-      setSaving(true)
-      const response = await fetch(`/api/organizations/${id}`, {
-        method: "DELETE"
+      const response = await fetch(`/api/organizations/${id}/regenerate-key`, {
+        method: "POST"
       })
       
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to delete organization")
+      if (response.ok) {
+        const data = await response.json()
+        setAdminKey(data.adminKey)
+        setShowAdminKey(true)
+      } else {
+        const error = await response.json()
+        alert(error.error || "Failed to regenerate admin key")
       }
-      
-      router.push("/organizations")
     } catch (error) {
-      console.error("Error deleting organization:", error)
-      setError(error instanceof Error ? error.message : "Failed to delete organization")
-      setSaving(false)
+      console.error("Error regenerating admin key:", error)
+      alert("Failed to regenerate admin key")
+    }
+  }
+  
+  const copyToClipboard = () => {
+    if (adminKey) {
+      navigator.clipboard.writeText(adminKey)
+      alert("Admin key copied to clipboard!")
     }
   }
   
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
+    setFormData(prev => ({ ...prev, [name]: value }))
+  }
+  
+  const handleSelectChange = (name: string, value: string) => {
     setFormData(prev => ({ ...prev, [name]: value }))
   }
   
@@ -330,7 +384,8 @@ export default function OrganizationSettingsPage() {
   
   return (
     <MainLayout>
-      <div className="space-y-6">
+      <div className="max-w-6xl mx-auto space-y-6 p-4 md:p-6">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" asChild>
@@ -339,7 +394,7 @@ export default function OrganizationSettingsPage() {
               </Link>
             </Button>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Organization Settings</h1>
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Organization Settings</h1>
               <p className="text-muted-foreground">
                 {organization.name}
               </p>
@@ -354,10 +409,12 @@ export default function OrganizationSettingsPage() {
         )}
         
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
+            <TabsTrigger value="members">Members</TabsTrigger>
+            <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="danger">Danger Zone</TabsTrigger>
           </TabsList>
           
@@ -365,8 +422,8 @@ export default function OrganizationSettingsPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  General Information
+                  <Building className="h-5 w-5" />
+                  Organization Information
                 </CardTitle>
                 <CardDescription>
                   Update your organization's basic information
@@ -392,6 +449,166 @@ export default function OrganizationSettingsPage() {
                     value={formData.description}
                     onChange={handleInputChange}
                     rows={3}
+                    disabled={!canEdit}
+                  />
+                </div>
+                
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="type">Organization Type</Label>
+                    <Select 
+                      value={formData.type} 
+                      onValueChange={(value) => handleSelectChange("type", value)}
+                      disabled={!canEdit}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="COMPANY">Company</SelectItem>
+                        <SelectItem value="NONPROFIT">Nonprofit</SelectItem>
+                        <SelectItem value="EDUCATIONAL">Educational</SelectItem>
+                        <SelectItem value="GOVERNMENT">Government</SelectItem>
+                        <SelectItem value="STARTUP">Startup</SelectItem>
+                        <SelectItem value="FREELANCE">Freelance</SelectItem>
+                        <SelectItem value="OTHER">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="industry">Industry</Label>
+                    <Input
+                      id="industry"
+                      name="industry"
+                      value={formData.industry}
+                      onChange={handleInputChange}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <Label htmlFor="size">Organization Size</Label>
+                  <Select 
+                    value={formData.size} 
+                    onValueChange={(value) => handleSelectChange("size", value)}
+                    disabled={!canEdit}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select size" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="SOLO">Solo (1 person)</SelectItem>
+                      <SelectItem value="SMALL">Small (2-50 employees)</SelectItem>
+                      <SelectItem value="MEDIUM">Medium (51-500 employees)</SelectItem>
+                      <SelectItem value="LARGE">Large (501-5000 employees)</SelectItem>
+                      <SelectItem value="ENTERPRISE">Enterprise (5000+ employees)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="website">Website</Label>
+                    <Input
+                      id="website"
+                      name="website"
+                      type="url"
+                      value={formData.website}
+                      onChange={handleInputChange}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <Input
+                      id="phone"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <Label htmlFor="timezone">Timezone</Label>
+                  <Select 
+                    value={formData.timezone} 
+                    onValueChange={(value) => handleSelectChange("timezone", value)}
+                    disabled={!canEdit}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select timezone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="America/New_York">Eastern Time (ET)</SelectItem>
+                      <SelectItem value="America/Chicago">Central Time (CT)</SelectItem>
+                      <SelectItem value="America/Denver">Mountain Time (MT)</SelectItem>
+                      <SelectItem value="America/Los_Angeles">Pacific Time (PT)</SelectItem>
+                      <SelectItem value="Europe/London">GMT (London)</SelectItem>
+                      <SelectItem value="Europe/Paris">CET (Paris)</SelectItem>
+                      <SelectItem value="Asia/Tokyo">JST (Tokyo)</SelectItem>
+                      <SelectItem value="Australia/Sydney">AEST (Sydney)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <Label htmlFor="address">Street Address</Label>
+                  <Input
+                    id="address"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleInputChange}
+                    disabled={!canEdit}
+                  />
+                </div>
+                
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <Label htmlFor="city">City</Label>
+                    <Input
+                      id="city"
+                      name="city"
+                      value={formData.city}
+                      onChange={handleInputChange}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="state">State/Province</Label>
+                    <Input
+                      id="state"
+                      name="state"
+                      value={formData.state}
+                      onChange={handleInputChange}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="postalCode">Postal Code</Label>
+                    <Input
+                      id="postalCode"
+                      name="postalCode"
+                      value={formData.postalCode}
+                      onChange={handleInputChange}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <Label htmlFor="country">Country</Label>
+                  <Input
+                    id="country"
+                    name="country"
+                    value={formData.country}
+                    onChange={handleInputChange}
                     disabled={!canEdit}
                   />
                 </div>
@@ -499,9 +716,8 @@ export default function OrganizationSettingsPage() {
                   
                   <div className="space-y-2">
                     <Label htmlFor="default-role">Default Member Role</Label>
-                    <Select
-                      id="default-role"
-                      value={settingsData.defaultMemberRole}
+                    <Select 
+                      value={settingsData.defaultMemberRole} 
                       onValueChange={(value) => handleSettingsChange("defaultMemberRole", value)}
                       disabled={!canEdit}
                     >
@@ -600,6 +816,63 @@ export default function OrganizationSettingsPage() {
                       disabled={!canEdit}
                     />
                   </div>
+                  
+                  <Separator />
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="task-assigned" className="text-base">
+                        Task Assigned Notifications
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Notify members when they are assigned to a task
+                      </p>
+                    </div>
+                    <Switch
+                      id="task-assigned"
+                      checked={settingsData.notificationSettings.taskAssigned}
+                      onCheckedChange={(checked) => handleSettingsChange("notificationSettings.taskAssigned", checked)}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                  
+                  <Separator />
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="task-completed" className="text-base">
+                        Task Completed Notifications
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Notify members when a task is completed
+                      </p>
+                    </div>
+                    <Switch
+                      id="task-completed"
+                      checked={settingsData.notificationSettings.taskCompleted}
+                      onCheckedChange={(checked) => handleSettingsChange("notificationSettings.taskCompleted", checked)}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                  
+                  <Separator />
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="comment-added" className="text-base">
+                        Comment Added Notifications
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Notify members when a comment is added to a task
+                      </p>
+                    </div>
+                    <Switch
+                      id="comment-added"
+                      checked={settingsData.notificationSettings.commentAdded}
+                      onCheckedChange={(checked) => handleSettingsChange("notificationSettings.commentAdded", checked)}
+                      disabled={!canEdit}
+                    />
+                  </div>
                 </div>
                 
                 <div className="flex justify-end">
@@ -610,6 +883,97 @@ export default function OrganizationSettingsPage() {
                     {saving ? "Saving..." : "Save Changes"}
                   </Button>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="members" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Organization Members
+                </CardTitle>
+                <CardDescription>
+                  Manage who has access to your organization
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <InviteMemberDialog organization={organization}>
+                    <Button>
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      Invite Member
+                    </Button>
+                  </InviteMemberDialog>
+                  
+                  <div className="space-y-3">
+                    {organization.members.map(member => (
+                      <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex items-center space-x-3">
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={member.user.avatar} />
+                            <AvatarFallback>
+                              {member.user.name.charAt(0)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-medium">{member.user.name}</p>
+                            <p className="text-sm text-muted-foreground">{member.user.email}</p>
+                          </div>
+                        </div>
+                        <Badge className={
+                          member.role === "OWNER" ? "bg-purple-100 text-purple-800" :
+                          member.role === "ADMIN" ? "bg-blue-100 text-blue-800" :
+                          member.role === "MANAGER" ? "bg-green-100 text-green-800" :
+                          "bg-gray-100 text-gray-800"
+                        }>
+                          {member.role}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="security" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Key className="h-5 w-5" />
+                  Admin Key
+                </CardTitle>
+                <CardDescription>
+                  This key is used for administrative actions. Keep it secure.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="adminKey">Admin Key</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="adminKey"
+                      type={showAdminKey ? "text" : "password"}
+                      value={adminKey || ""}
+                      readOnly
+                      className="font-mono"
+                    />
+                    <Button variant="outline" onClick={() => setShowAdminKey(!showAdminKey)}>
+                      {showAdminKey ? "Hide" : "Show"}
+                    </Button>
+                    <Button variant="outline" onClick={copyToClipboard}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    This key is required for critical operations like deleting the organization.
+                  </p>
+                </div>
+                <Button onClick={handleRegenerateKey}>
+                  Regenerate Key
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -634,23 +998,15 @@ export default function OrganizationSettingsPage() {
                 </div>
                 
                 {canDelete && (
-                  <Button 
-                    variant="destructive" 
-                    onClick={handleDeleteOrganization}
-                    disabled={saving}
+                  <DeleteOrganizationDialog 
+                    organization={organization} 
+                    onSuccess={() => router.push("/organizations")}
                   >
-                    {saving ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete Organization
-                      </>
-                    )}
-                  </Button>
+                    <Button variant="destructive">
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Organization
+                    </Button>
+                  </DeleteOrganizationDialog>
                 )}
                 
                 {!canDelete && (

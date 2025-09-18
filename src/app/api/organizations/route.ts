@@ -1,7 +1,11 @@
+// app/api/organizations/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { generateAdminKey } from "@/lib/utils"; // Add this import
+
+import { OrganizationType, OrganizationSize } from "@prisma/client"
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,6 +17,8 @@ export async function GET(request: NextRequest) {
     
     const { searchParams } = new URL(request.url)
     const search = searchParams.get("search") || ""
+    const type = searchParams.get("type") as OrganizationType | null
+    const size = searchParams.get("size") as OrganizationSize | null
     
     // Get user role to determine permissions
     const user = await db.user.findUnique({
@@ -31,8 +37,19 @@ export async function GET(request: NextRequest) {
     if (search) {
       whereClause.OR = [
         { name: { contains: search, mode: "insensitive" } },
-        { description: { contains: search, mode: "insensitive" } }
+        { description: { contains: search, mode: "insensitive" } },
+        { industry: { contains: search, mode: "insensitive" } }
       ]
+    }
+    
+    // Add type filter if provided
+    if (type) {
+      whereClause.type = type
+    }
+    
+    // Add size filter if provided
+    if (size) {
+      whereClause.size = size
     }
     
     // Add permission-based filtering
@@ -70,10 +87,10 @@ export async function GET(request: NextRequest) {
           }
         },
         projects: {
-          select: { id: true, name: true, key: true } // Fixed: removed 'string' type
+          select: { id: true, name: true, key: true }
         },
         teams: {
-          select: { id: true, name: true } // Fixed: removed 'string' type
+          select: { id: true, name: true }
         },
         _count: {
           select: {
@@ -96,40 +113,69 @@ export async function GET(request: NextRequest) {
   }
 }
 
+
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
+    const session = await getServerSession(authOptions);
     
     if (!session || !session.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     
-    // Allow any authenticated user to create their first organization
     // Check if user already has organizations
     const userOrganizations = await db.organizationMember.findMany({
       where: { userId: session.user.id }
-    })
+    });
     
-    // Allow creation if user is admin OR has no organizations
     if (session.user.role !== "ADMIN" && userOrganizations.length > 0) {
-      return NextResponse.json({ error: "You can only create one organization" }, { status: 403 })
+      return NextResponse.json({ error: "You can only create one organization" }, { status: 403 });
     }
     
-    const body = await request.json()
-    const { name, description, memberIds = [] } = body
+    const body = await request.json();
+    const { 
+      name, 
+      description, 
+      type,
+      industry,
+      size,
+      website,
+      phone,
+      address,
+      city,
+      state,
+      country,
+      postalCode,
+      timezone,
+      memberIds = [] 
+    } = body;
     
     if (!name) {
       return NextResponse.json(
         { error: "Name is required" },
         { status: 400 }
-      )
+      );
     }
+    
+    // Generate admin key for security
+    const adminKey = generateAdminKey(); // This should now work
     
     // Create the organization
     const organization = await db.organization.create({
       data: {
         name,
-        description
+        description,
+        type: type || "COMPANY",
+        industry,
+        size,
+        website,
+        phone,
+        address,
+        city,
+        state,
+        country,
+        postalCode,
+        timezone,
+        adminKey
       },
       include: {
         members: {
@@ -147,7 +193,7 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-    })
+    });
     
     // Add the creator as an owner
     await db.organizationMember.create({
@@ -156,58 +202,28 @@ export async function POST(request: NextRequest) {
         organizationId: organization.id,
         role: "OWNER"
       }
-    })
+    });
     
-    // Add additional members if provided (only if user is admin)
-    if (session.user.role === "ADMIN" && memberIds.length > 0) {
-      for (const memberId of memberIds) {
-        await db.organizationMember.create({
-          data: {
-            userId: memberId,
-            organizationId: organization.id,
-            role: "MEMBER"
-          }
-        })
-        
-        // Create notification for new member
-        await db.notification.create({
-          data: {
-            title: "Added to Organization",
-            message: `You have been added to the organization "${name}"`,
-            type: "SYSTEM",
-            userId: memberId
-          }
-        })
-      }
+    // Add additional members if provided
+    if (memberIds.length > 0) {
+      await db.organizationMember.createMany({
+        data: memberIds.map((userId: string) => ({
+          userId,
+          organizationId: organization.id,
+          role: "MEMBER"
+        }))
+      });
     }
     
-    // Fetch the updated organization with all members
-    const updatedOrganization = await db.organization.findUnique({
-      where: { id: organization.id },
-      include: {
-        members: {
-          include: {
-            user: {
-              select: { id: true, name: true, email: true, avatar: true }
-            }
-          }
-        },
-        _count: {
-          select: {
-            projects: true,
-            teams: true,
-            members: true
-          }
-        }
-      }
-    })
-    
-    return NextResponse.json(updatedOrganization, { status: 201 })
+    return NextResponse.json({
+      ...organization,
+      adminKey: session.user.role === "ADMIN" || userOrganizations.length === 0 ? organization.adminKey : undefined
+    });
   } catch (error) {
-    console.error("Error creating organization:", error)
+    console.error("Error creating organization:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
-    )
+    );
   }
 }

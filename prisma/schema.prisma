@@ -118,21 +118,34 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 model Organization {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  avatar      String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String           @id @default(cuid())
+  name          String
+  description   String?
+  avatar        String?
+  type          OrganizationType @default(COMPANY)
+  industry      String?
+  size          OrganizationSize?
+  website       String?
+  phone         String?
+  address       String?
+  city          String?
+  state         String?
+  country       String?
+  postalCode    String?
+  timezone      String?
+  adminKey      String?          @unique   // Admin key for security
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
   
   // Relationships
-  members     OrganizationMember[]
-  projects    Project[]
-  teams       Team[]
-  users       User[] @relation("OrganizationMemberships")
+  members       OrganizationMember[]
+  projects      Project[]
+  teams         Team[]
+  users         User[] @relation("OrganizationMemberships")
   
   @@map("organizations")
 }
+
 model OrganizationMember {
   id             String    @id @default(cuid())
   userId         String
@@ -398,4 +411,21 @@ enum OrganizationRole {
   ADMIN
   MANAGER
   MEMBER
+}
+enum OrganizationType {
+  COMPANY
+  NONPROFIT
+  EDUCATIONAL
+  GOVERNMENT
+  STARTUP
+  FREELANCE
+  OTHER
+}
+
+enum OrganizationSize {
+  SOLO
+  SMALL
+  MEDIUM
+  LARGE
+  ENTERPRISE
 }

@@ -7,14 +7,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ArrowLeft, Save, Loader2, Settings, AlertTriangle } from "lucide-react"
+import { ArrowLeft, Save, Loader2, Settings, AlertTriangle, Building, Globe, Phone, MapPin } from "lucide-react"
 import Link from "next/link"
 
 interface Organization {
   id: string
   name: string
   description: string | null
+  type: string
+  industry: string | null
+  size: string | null
+  website: string | null
+  phone: string | null
+  address: string | null
+  city: string | null
+  state: string | null
+  country: string | null
+  postalCode: string | null
+  timezone: string | null
   avatar: string | null
   createdAt: string
   updatedAt: string
@@ -41,7 +54,18 @@ export default function EditOrganizationPage() {
   const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: "",
-    description: ""
+    description: "",
+    type: "COMPANY",
+    industry: "",
+    size: "",
+    website: "",
+    phone: "",
+    address: "",
+    city: "",
+    state: "",
+    country: "",
+    postalCode: "",
+    timezone: ""
   })
   
   useEffect(() => {
@@ -73,7 +97,18 @@ export default function EditOrganizationPage() {
       setOrganization(organizationData)
       setFormData({
         name: organizationData.name,
-        description: organizationData.description || ""
+        description: organizationData.description || "",
+        type: organizationData.type || "COMPANY",
+        industry: organizationData.industry || "",
+        size: organizationData.size || "",
+        website: organizationData.website || "",
+        phone: organizationData.phone || "",
+        address: organizationData.address || "",
+        city: organizationData.city || "",
+        state: organizationData.state || "",
+        country: organizationData.country || "",
+        postalCode: organizationData.postalCode || "",
+        timezone: organizationData.timezone || ""
       })
     } catch (error) {
       console.error("Error fetching organization:", error)
@@ -114,7 +149,12 @@ export default function EditOrganizationPage() {
       // Show success message
       const successMessage = document.createElement("div")
       successMessage.className = "fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md shadow-lg flex items-center"
-      successMessage.innerHTML = '<svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Organization updated successfully'
+      successMessage.innerHTML = `
+        <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        Organization updated successfully
+      `
       document.body.appendChild(successMessage)
       
       setTimeout(() => {
@@ -133,16 +173,9 @@ export default function EditOrganizationPage() {
     setFormData(prev => ({ ...prev, [name]: value }))
   }
   
-  const getUserRole = () => {
-    if (!organization || !session?.user?.id) return null
-    
-    const member = organization.members.find(m => m.user.id === session.user.id)
-    return member ? member.role : null
+  const handleSelectChange = (name: string, value: string) => {
+    setFormData(prev => ({ ...prev, [name]: value }))
   }
-  
-  const userRole = getUserRole()
-  const isAdmin = session?.user?.role === "ADMIN"
-  const canEdit = isAdmin || (userRole && (userRole === "OWNER" || userRole === "ADMIN"))
   
   if (loading) {
     return (
@@ -163,27 +196,9 @@ export default function EditOrganizationPage() {
             <h2 className="text-xl font-bold mb-2">Error</h2>
             <p className="text-muted-foreground mb-4">{error || "Organization not found"}</p>
             <Button asChild>
-              <Link href={`/organizations/${id}`}>
+              <Link href="/organizations">
                 <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Organization
-              </Link>
-            </Button>
-          </div>
-        </div>
-      </MainLayout>
-    )
-  }
-  
-  if (!canEdit) {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center min-h-screen">
-          <div className="text-center">
-            <p className="text-lg text-muted-foreground">You don't have permission to edit this organization.</p>
-            <Button className="mt-4" asChild>
-              <Link href={`/organizations/${id}`}>
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Organization
+                Back to Organizations
               </Link>
             </Button>
           </div>
@@ -194,19 +209,18 @@ export default function EditOrganizationPage() {
   
   return (
     <MainLayout>
-      <div className="max-w-3xl mx-auto space-y-6 p-4 md:p-6">
+      <div className="max-w-4xl mx-auto space-y-6 p-4 md:p-6">
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" asChild>
             <Link href={`/organizations/${id}`}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
+              <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
           <div className="flex-1">
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Edit Organization</h1>
             <p className="text-muted-foreground">
-              Update organization information
+              Update your organization details
             </p>
           </div>
         </div>
@@ -218,46 +232,221 @@ export default function EditOrganizationPage() {
         )}
         
         <form onSubmit={handleSubmit} className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                Organization Information
-              </CardTitle>
-              <CardDescription>
-                Update the basic information for your organization
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label htmlFor="name" className="text-sm font-medium">
-                  Organization Name *
-                </label>
-                <Input
-                  id="name"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  placeholder="Enter organization name"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="description" className="text-sm font-medium">
-                  Description
-                </label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  placeholder="Enter organization description"
-                  rows={4}
-                />
-              </div>
-            </CardContent>
-          </Card>
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Basic Information */}
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Building className="h-5 w-5" />
+                  Basic Information
+                </CardTitle>
+                <CardDescription>
+                  Update the basic information for your organization
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="name">Organization Name *</Label>
+                  <Input
+                    id="name"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    placeholder="Enter organization name"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    name="description"
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    placeholder="Enter organization description"
+                    rows={3}
+                  />
+                </div>
+                
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="type">Organization Type</Label>
+                    <Select value={formData.type} onValueChange={(value) => handleSelectChange("type", value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select organization type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="COMPANY">Company</SelectItem>
+                        <SelectItem value="NONPROFIT">Nonprofit</SelectItem>
+                        <SelectItem value="EDUCATIONAL">Educational</SelectItem>
+                        <SelectItem value="GOVERNMENT">Government</SelectItem>
+                        <SelectItem value="STARTUP">Startup</SelectItem>
+                        <SelectItem value="FREELANCE">Freelance</SelectItem>
+                        <SelectItem value="OTHER">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="industry">Industry</Label>
+                    <Input
+                      id="industry"
+                      name="industry"
+                      value={formData.industry}
+                      onChange={handleInputChange}
+                      placeholder="e.g. Technology, Healthcare, Finance"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <Label htmlFor="size">Organization Size</Label>
+                  <Select value={formData.size} onValueChange={(value) => handleSelectChange("size", value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select organization size" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="SOLO">Solo (1 person)</SelectItem>
+                      <SelectItem value="SMALL">Small (2-50 employees)</SelectItem>
+                      <SelectItem value="MEDIUM">Medium (51-500 employees)</SelectItem>
+                      <SelectItem value="LARGE">Large (501-5000 employees)</SelectItem>
+                      <SelectItem value="ENTERPRISE">Enterprise (5000+ employees)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Contact Information */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Globe className="h-5 w-5" />
+                  Contact Information
+                </CardTitle>
+                <CardDescription>
+                  How people can reach your organization
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="website">Website</Label>
+                  <Input
+                    id="website"
+                    name="website"
+                    type="url"
+                    value={formData.website}
+                    onChange={handleInputChange}
+                    placeholder="https://example.com"
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                    placeholder="+1 (555) 123-4567"
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="timezone">Timezone</Label>
+                  <Select value={formData.timezone} onValueChange={(value) => handleSelectChange("timezone", value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select timezone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="America/New_York">Eastern Time (ET)</SelectItem>
+                      <SelectItem value="America/Chicago">Central Time (CT)</SelectItem>
+                      <SelectItem value="America/Denver">Mountain Time (MT)</SelectItem>
+                      <SelectItem value="America/Los_Angeles">Pacific Time (PT)</SelectItem>
+                      <SelectItem value="Europe/London">GMT (London)</SelectItem>
+                      <SelectItem value="Europe/Paris">CET (Paris)</SelectItem>
+                      <SelectItem value="Asia/Tokyo">JST (Tokyo)</SelectItem>
+                      <SelectItem value="Australia/Sydney">AEST (Sydney)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Address Information */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5" />
+                  Address Information
+                </CardTitle>
+                <CardDescription>
+                  Physical location of your organization
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="address">Street Address</Label>
+                  <Input
+                    id="address"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleInputChange}
+                    placeholder="123 Main Street"
+                  />
+                </div>
+                
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="city">City</Label>
+                    <Input
+                      id="city"
+                      name="city"
+                      value={formData.city}
+                      onChange={handleInputChange}
+                      placeholder="New York"
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="state">State/Province</Label>
+                    <Input
+                      id="state"
+                      name="state"
+                      value={formData.state}
+                      onChange={handleInputChange}
+                      placeholder="NY"
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="country">Country</Label>
+                    <Input
+                      id="country"
+                      name="country"
+                      value={formData.country}
+                      onChange={handleInputChange}
+                      placeholder="United States"
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="postalCode">Postal Code</Label>
+                    <Input
+                      id="postalCode"
+                      name="postalCode"
+                      value={formData.postalCode}
+                      onChange={handleInputChange}
+                      placeholder="10001"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
           
           <div className="flex justify-end gap-4">
             <Button type="button" variant="outline" asChild>
